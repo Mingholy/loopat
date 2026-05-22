@@ -3115,8 +3115,6 @@ app.get(
               ? pm as "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk" | "auto"
               : undefined
             // /goal: extract goal, persist to meta, set on session.
-            // Rewrite the text so CC sees a natural-language message instead
-            // of an unrecognized slash command.
             const goalMatch = msg.text.match(/^\/goal\s+(.+)/)
             if (goalMatch) {
               const goal = goalMatch[1].trim()
@@ -3125,7 +3123,23 @@ app.get(
               patchLoopMeta(id, { config: { ...(meta?.config ?? {}), goal, goalSetAt: setAt, goalStatus: "active" } }).catch(() => {})
               msg.text = `My goal is: ${goal}`
             }
-            session.sendUserText(msg.text, permissionMode)
+            const allowedMedia = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"])
+            const MAX_IMAGES_PER_MSG = 20
+            const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+            const images: { mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string; filename?: string }[] = []
+            if (Array.isArray(msg.images)) {
+              for (const raw of msg.images.slice(0, MAX_IMAGES_PER_MSG)) {
+                if (!raw || typeof raw !== "object") continue
+                const mediaType = (raw as any).mediaType
+                const data = (raw as any).data
+                if (typeof mediaType !== "string" || !allowedMedia.has(mediaType)) continue
+                if (typeof data !== "string" || data.length === 0) continue
+                if (data.length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3)) continue
+                const filename = typeof (raw as any).filename === "string" ? (raw as any).filename : undefined
+                images.push({ mediaType: mediaType as any, data, ...(filename ? { filename } : {}) })
+              }
+            }
+            session.sendUserText(msg.text, permissionMode, images.length > 0 ? images : undefined)
           } else if (msg?.type === "clear") {
             session.clear(userId ?? "anon")
           } else if (msg?.type === "interrupt") {
