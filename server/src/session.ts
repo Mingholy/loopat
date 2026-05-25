@@ -14,6 +14,7 @@ import { effectiveDriver, getLoop, loopEphemeralPorts, patchLoopMeta } from "./l
 import { spawn as nodeSpawn } from "node:child_process"
 import { ensureContainer, buildPodmanExecArgs, markActive, markInactive, V_LOOP_WORKDIR, V_LOOP_CLAUDE } from "./podman"
 import { updateLoopStatus, setLoopPhase } from "./loop-status"
+import { maybeAutoName } from "./auto-name"
 
 // Tests override LOOPAT_CLAUDE_BIN to point at a mock binary (a script that
 // reads stream-json from stdin and writes canned messages back) so we can
@@ -793,6 +794,11 @@ class LoopSession {
           this.q = null
           this.processNextInQueue()
           resultReceived = true
+          maybeAutoName(this.id).then(async (didName) => {
+            if (!didName) return
+            const fresh = await getLoop(this.id)
+            if (fresh) this.broadcast({ type: "meta_updated", meta: fresh })
+          }).catch(() => {})
         } else if (
           // Inject queued messages at tool-result boundaries — matching
           // real Claude Code's per-step queue consumption.
