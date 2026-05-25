@@ -6,6 +6,7 @@ import { execFile, execFileSync } from "node:child_process"
 import { promisify } from "node:util"
 import { listLoops, createLoop, getLoop, loopExists, patchLoopMeta, backfillAllMounts, ensureWorkspaceDirs, provisionUserPersonal, importPersonalFromRepo, setupPersonalViaProvider, listPersonalReposViaProvider, authenticateViaProvider, isPersonalFresh, ensureUiNotesWorktree, syncUiNotes, ffUpdateUiNotes, discardUiNotes, notesBehind, inspectPersonalDirty, syncPersonalToRemote, deletePersonalVault, pullPersonalFromRemote, pushPersonalToRemote, ensureContextMounts, effectiveDriver, isDriver, distillLoop, inspectRepoSync, pullRepoFromRemote, pushRepoToRemote, listVaultPublicKeys, userOnboarding, submitOnboarding } from "./loops"
 import { getEphemeralHostPort, probePodman, stopAllWorkspaceContainers, ensureServeContainer, ensurePortProxyContainer, ensureSandboxImage } from "./podman"
+import { listLoopAgents } from "./compose"
 import { startMcpAuth, completeMcpAuth, probeOAuthSupport, evictOAuthProbe, parseBearerEnvName, mcpRequiredEnvs, parseTemplateVars, type OAuthSupport } from "./mcp-oauth"
 import { DEFAULT_VAULT, loadVaultEnvs } from "./vaults"
 import {
@@ -1918,13 +1919,6 @@ app.post("/api/loops/:id/strip-thinking", requireAuth, async (c) => {
   return c.json(r)
 })
 
-/**
- * Read the live host port for an ephemeral-mode share. Returns null when
- * the container is down, not in ephemeral mode, or the mapping hasn't
- * been observed yet (e.g. container is still starting). The UI polls
- * this endpoint while the dialog is open so a fresh restart's new port
- * appears without the user reloading.
- */
 app.get("/api/loops/:id/share/current-port", requireAuth, async (c) => {
   const id = c.req.param("id") ?? ""
   const meta = await getLoop(id)
@@ -1935,6 +1929,13 @@ app.get("/api/loops/:id/share/current-port", requireAuth, async (c) => {
   const proto: "tcp" | "udp" = meta.shareProtocol === "udp" ? "udp" : "tcp"
   const port = await getEphemeralHostPort(id, meta.sharePort, proto)
   return c.json({ port, internalPort: meta.sharePort, protocol: proto })
+})
+
+app.get("/api/loops/:id/agents", requireAuth, async (c) => {
+  const id = c.req.param("id") ?? ""
+  if (!(await loopExists(id))) return c.json({ error: "not found" }, 404)
+  const agents = await listLoopAgents(id)
+  return c.json({ agents })
 })
 
 app.get("/api/loops/:id/context", requireAuth, async (c) => {
