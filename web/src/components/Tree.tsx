@@ -157,6 +157,10 @@ function TreeNode({
   }, [open, entry.path, onLoadChildren, children])
 
   const handleContextMenu = (e: React.MouseEvent) => {
+    // If this node has no actions (e.g. encrypted files in personal vault),
+    // don't suppress the native menu — and don't open an empty bubble.
+    const items = getContextActions(entry).filter((a) => !a.hidden)
+    if (items.length === 0) return
     e.preventDefault()
     e.stopPropagation()
     setMenuPos({ x: e.clientX, y: e.clientY })
