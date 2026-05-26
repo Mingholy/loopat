@@ -1017,6 +1017,16 @@ class LoopSession {
     // and surface as `<plugin>:<skill>`. Best-effort pre-spawn seed so the
     // chip shows useful numbers before CC's init payload arrives; CC's init
     // is the authoritative list.
+    //
+    // ensureLoopPluginsInstalled writes plugins into CC's global
+    // installed_plugins.json so that lookupPluginInstallPath can resolve them.
+    // Without this call the path lookup returns null (spawn-time only), leaving
+    // the slash menu empty for plugin commands until the first message.
+    try {
+      await ensureLoopPluginsInstalled(this.id)
+    } catch (e: any) {
+      console.warn(`[session ${this.id.slice(0,8)}] pre-seed plugin install failed: ${e?.message ?? e}`)
+    }
     try {
       const settingsPath = join(loopClaudeDir(this.id), "settings.json")
       if (existsSync(settingsPath)) {
