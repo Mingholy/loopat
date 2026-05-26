@@ -225,6 +225,7 @@ export default function AssistantMessage() {
   return (
     <MessagePrimitive.Root
       data-role="assistant"
+      data-message-id={messageId}
       className="relative pl-6 md:pl-8"
     >
       {/* Vertical line gutter — dot sits on the line. Extends past bounds to bridge gap between messages */}

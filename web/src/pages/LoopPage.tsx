@@ -289,6 +289,7 @@ function LoopMain({ meta }: { meta: LoopMeta }) {
   const [fullscreenPanel, setFullscreenPanel] = useState<RightMode | null>(null)
   const [pickedFile, setPickedFile] = useState<string | null>(null)
   const [mounts, setMounts] = useState<ContextMount[]>([])
+  const [outlineOpen, setOutlineOpen] = useState(false)
   // sandboxInfo + refresh-sandbox UI removed — profile model re-composes every spawn,
   // so there's nothing to "refresh" mid-loop.
   const [shareOpen, setShareOpen] = useState(false)
@@ -425,6 +426,8 @@ function LoopMain({ meta }: { meta: LoopMeta }) {
         toggleMode={toggleMode}
         onShareWork={() => setShareOpen(true)}
         showShareButton={!serveCfg || serveCfg.serveEnabled || serveCfg.serveDynamicEnabled || serveCfg.serveEphemeralEnabled}
+        outlineOpen={outlineOpen}
+        onToggleOutline={() => setOutlineOpen((v) => !v)}
       />
       {meta.contextWarnings && meta.contextWarnings.length > 0 && (
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-800 leading-relaxed">
@@ -456,6 +459,8 @@ function LoopMain({ meta }: { meta: LoopMeta }) {
                 onTakeDrive={() => ws.takeDrive(meta.id)}
                 pickedFile={pickedFile}
                 editorSelection={editorSelection}
+                outlineOpen={outlineOpen}
+                onCloseOutline={() => setOutlineOpen(false)}
               />
             </AssistantRuntimeProvider>
           </LoopRuntimeProvider>
@@ -482,6 +487,8 @@ function LoopMain({ meta }: { meta: LoopMeta }) {
                   onTakeDrive={() => ws.takeDrive(meta.id)}
                   pickedFile={pickedFile}
                   editorSelection={editorSelection}
+                  outlineOpen={outlineOpen}
+                  onCloseOutline={() => setOutlineOpen(false)}
                 />
               </AssistantRuntimeProvider>
             </LoopRuntimeProvider>
@@ -556,6 +563,8 @@ function LoopMain({ meta }: { meta: LoopMeta }) {
                 onTakeDrive={() => ws.takeDrive(meta.id)}
                 pickedFile={pickedFile}
                 editorSelection={editorSelection}
+                outlineOpen={outlineOpen}
+                onCloseOutline={() => setOutlineOpen(false)}
               />
             </AssistantRuntimeProvider>
           </LoopRuntimeProvider>
@@ -608,6 +617,8 @@ function LoopHeader({
   toggleMode,
   onShareWork,
   showShareButton,
+  outlineOpen,
+  onToggleOutline,
 }: {
   meta: LoopMeta
   mounts: ContextMount[]
@@ -621,6 +632,8 @@ function LoopHeader({
   toggleMode: (m: RightMode) => void
   onShareWork: () => void
   showShareButton?: boolean
+  outlineOpen: boolean
+  onToggleOutline: () => void
 }) {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
@@ -762,6 +775,17 @@ function LoopHeader({
           {modeBtn("▤ workdir", "workdir")}
           {modeBtn("✎ editor", "editor")}
           {modeBtn("▷ terminal", "terminal")}
+          <button
+            className={
+              outlineOpen
+                ? "px-2 py-0.5 rounded bg-gray-100 text-gray-900"
+                : "px-2 py-0.5 rounded text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+            }
+            onClick={onToggleOutline}
+            title="Jump to one of your earlier messages"
+          >
+            ☰ outline
+          </button>
           <button
             className={
               openPanels.includes("git")
