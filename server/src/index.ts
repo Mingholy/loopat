@@ -266,7 +266,7 @@ app.get("/api/serve/check-port", requireAuth, async (c) => {
 // `default` still surfaces as the active one.
 app.get("/api/providers", requireAuth, async (c) => {
   const wCfg = await loadConfig()
-  const providers: Record<string, { models: ModelEntry[]; baseUrl: string; source: "personal" | "workspace"; enabled: boolean; hasKey: boolean }> = {}
+  const providers: Record<string, { models: ModelEntry[]; baseUrl: string; source: "personal" | "workspace"; enabled: boolean; hasKey: boolean; missingVar?: string }> = {}
   if (wCfg.providers) {
     for (const [name, p] of Object.entries(wCfg.providers)) {
       const hasKey = typeof p.apiKey === "string" && p.apiKey.length > 0
@@ -277,12 +277,27 @@ app.get("/api/providers", requireAuth, async (c) => {
   const userId = c.get("userId") as string
   try {
     const pCfg = await loadPersonalConfig(userId)
+    // Raw disk keeps the unresolved `${VAR}` apiKey refs (loadPersonalConfig
+    // substitutes them to "" when the var isn't in the vault). Used to name
+    // the missing env var below.
+    const rawDisk = await readPersonalDiskRaw(userId).catch(() => null)
     for (const [name, p] of Object.entries(pCfg.providers)) {
       const hasKey = typeof p.apiKey === "string" && p.apiKey.length > 0
-      // Only overlay if the user actually configured this provider (has a key).
-      // Template/preset providers without a key should not shadow workspace config.
       if (hasKey) {
         providers[name] = { models: p.models, baseUrl: p.baseUrl, source: "personal", enabled: p.enabled !== false, hasKey }
+      } else if (!providers[name]) {
+        // Configured personal provider whose `${VAR}` apiKey didn't resolve
+        // (var not set in the active vault). Surface it as a disabled,
+        // keyless entry — with the missing var name — instead of silently
+        // dropping it, so the UI can tell the user which env var to set.
+        // Never shadow a keyed workspace provider of the same name (guarded
+        // by `!providers[name]`).
+        const rawApiKey = (rawDisk?.providers as any)?.[name]?.apiKey
+        const ref = describeApiKeyRef(rawApiKey, userId)
+        providers[name] = {
+          models: p.models, baseUrl: p.baseUrl, source: "personal", enabled: false, hasKey: false,
+          ...(ref.kind === "var" && ref.varName && !ref.exists ? { missingVar: ref.varName } : {}),
+        }
       }
     }
     active = pCfg.default || Object.keys(pCfg.providers)[0] || active

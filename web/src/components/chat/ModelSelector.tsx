@@ -226,6 +226,25 @@ export default function ModelSelector() {
             )}
           </div>
 
+          {/* Configured providers hidden because their ${VAR} API key isn't
+              set in the active vault — surfaced so it's not a silent omission. */}
+          {(() => {
+            const needsKey = providers
+              ? Object.entries(providers.providers).filter(([, p]) => !p.hasKey && p.missingVar)
+              : [];
+            if (needsKey.length === 0) return null;
+            return (
+              <div className="px-4 py-2 border-t border-amber-100 bg-amber-50/60 text-[11px] text-amber-700 shrink-0 space-y-0.5">
+                {needsKey.map(([name, p]) => (
+                  <div key={name}>
+                    ⚠ <span className="font-medium">{name}</span> hidden — set env var{" "}
+                    <code className="font-mono">{p.missingVar}</code> in Settings → AI Providers
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Footer with shortcuts */}
           <div className="flex items-center gap-4 px-4 py-2 border-t border-gray-100 text-[10px] text-gray-400 shrink-0">
             <span className="flex items-center gap-1">
