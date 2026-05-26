@@ -75,8 +75,6 @@ export default function ChatInterface({ archived = false, onUnarchive, readOnly 
   // always sees the latest values without re-subscribing.
   const hasHistoryRef = useRef(hasHistory);
   hasHistoryRef.current = hasHistory;
-  const showHistoryRef = useRef(showHistory);
-  showHistoryRef.current = showHistory;
   const hasOlderRef = useRef(hasOlderMessages);
   hasOlderRef.current = hasOlderMessages;
 
@@ -236,7 +234,32 @@ export default function ChatInterface({ archived = false, onUnarchive, readOnly 
       });
     };
     scroll();
+    // Anchor-based compensation: when older messages prepend (or pre-clear
+    // history toggles), the React commit + assistant-ui store propagation +
+    // DOM render are decoupled — useEffect + rAF fires before scrollHeight
+    // actually grows. Hooking into ResizeObserver instead waits for the real
+    // size change, which is the only signal that's guaranteed in-sync.
+    const compensate = () => {
+      const anchor = loadMoreAnchorRef.current.active
+        ? loadMoreAnchorRef.current
+        : scrollAnchorRef.current.active
+          ? scrollAnchorRef.current
+          : null;
+      if (!anchor) return false;
+      const newHeight = vp.scrollHeight;
+      const delta = newHeight - anchor.oldScrollHeight;
+      if (delta <= 0) return false;
+      const target = anchor.oldScrollTop + delta;
+      const prevBehavior = vp.style.scrollBehavior;
+      vp.style.scrollBehavior = "auto";
+      vp.scrollTop = target;
+      vp.style.scrollBehavior = prevBehavior;
+      anchor.active = false;
+      userScrolledUp = true;
+      return true;
+    };
     const ro = new ResizeObserver(() => {
+      if (compensate()) return;
       if (timer) return;
       if (loadingHistoryRef.current) return;
       if (suppressScroll) return;
@@ -267,34 +290,6 @@ export default function ChatInterface({ archived = false, onUnarchive, readOnly 
     }
     prevLoading.current = loadingHistory;
   }, [loadingHistory]);
-
-  // When showHistory toggles, preserve the user's visible scroll position
-  // so prepended/removed messages don't cause a jump.
-  useEffect(() => {
-    if (!scrollAnchorRef.current.active) return;
-    const vp = vpRef.current;
-    if (!vp) return;
-    const { oldScrollTop, oldScrollHeight } = scrollAnchorRef.current;
-    scrollAnchorRef.current.active = false;
-    requestAnimationFrame(() => {
-      const delta = vp.scrollHeight - oldScrollHeight;
-      vp.scrollTop = oldScrollTop + delta;
-    });
-  }, [showHistory]);
-
-  // When loadMore increases renderCount, preserve scroll position so
-  // older messages appearing at top don't cause a jump.
-  useEffect(() => {
-    if (!loadMoreAnchorRef.current.active) return;
-    const vp = vpRef.current;
-    if (!vp) return;
-    const { oldScrollTop, oldScrollHeight } = loadMoreAnchorRef.current;
-    loadMoreAnchorRef.current.active = false;
-    requestAnimationFrame(() => {
-      const delta = vp.scrollHeight - oldScrollHeight;
-      vp.scrollTop = oldScrollTop + delta;
-    });
-  }, [hasOlderMessages]);
 
   // Reset loading spinner after messages render.
   useEffect(() => {
