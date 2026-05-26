@@ -248,6 +248,7 @@ function Shell({ ws }: { ws: WorkspaceState }) {
                       try {
                         const m = await ws.createLoop({
                           title: "cross-loop distill",
+                          profiles: ["default"],
                           mountAllLoops: true,
                           knowledgeRw: true,
                         })
