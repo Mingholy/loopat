@@ -820,15 +820,22 @@ export async function saveWorkspaceConfig(cfg: Partial<WorkspaceConfig>): Promis
   const existing = await loadConfig()
   const merged: WorkspaceConfig = { ...existing }
   if (cfg.providers !== undefined) {
-    merged.providers = merged.providers ?? {}
+    // `cfg.providers` is the AUTHORITATIVE full set (the admin panel always
+    // sends every provider it's keeping). Build a fresh map so providers
+    // omitted here — i.e. removed in the UI — are actually dropped, instead
+    // of surviving via an additive merge (that was the "remove doesn't stick"
+    // bug). For each KEPT provider we still fall back to the existing value
+    // when a field is absent (notably apiKey, only sent when re-entered).
+    const existingProviders = existing.providers ?? {}
+    const nextProviders: Record<string, ProviderConfig> = {}
     for (const [name, p] of Object.entries(cfg.providers)) {
-      const existingProv = merged.providers[name]
+      const existingProv = existingProviders[name]
       const incoming = p as any
       // Normalize to canonical models[] format.
       const models: ModelEntry[] = incoming.models?.length > 0
         ? incoming.models.map((m: any) => ({ id: m.id, ...(m.enabled === false ? { enabled: false } : {}) }))
         : existingProv?.models ?? (incoming.model ? [{ id: incoming.model, enabled: true }] : [])
-      merged.providers[name] = {
+      nextProviders[name] = {
         models,
         baseUrl: incoming.baseUrl ?? existingProv?.baseUrl ?? "",
         ...(incoming.maxContextTokens ? { maxContextTokens: incoming.maxContextTokens } : {}),
@@ -836,6 +843,7 @@ export async function saveWorkspaceConfig(cfg: Partial<WorkspaceConfig>): Promis
         enabled: incoming.enabled !== undefined ? incoming.enabled : (existingProv?.enabled ?? true),
       } as any
     }
+    merged.providers = nextProviders
   }
   if (cfg.default !== undefined) merged.default = cfg.default
   if (cfg.knowledge !== undefined) merged.knowledge = cfg.knowledge
