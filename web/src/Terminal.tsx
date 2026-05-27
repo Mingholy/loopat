@@ -91,13 +91,15 @@ export function Terminal({
     term.loadAddon(fit)
     term.loadAddon(search)
 
-    // GPU-accelerated renderer; falls back to DOM silently on failure
+    term.open(containerRef.current)
+
+    // Optional addons — must load AFTER open() so activate() runs inside
+    // the try-catch (before open(), loadAddon only registers; activate()
+    // fires during open() and escapes the try-catch).
     try { term.loadAddon(new WebglAddon()) } catch {}
     try { term.loadAddon(new ClipboardAddon()) } catch {}
     try { term.loadAddon(new Unicode11Addon()) } catch {}
     try { term.loadAddon(new LigaturesAddon()) } catch {}
-
-    term.open(containerRef.current)
     // xterm.js creates an internal textarea for accessibility; give it a name
     // for the browser's autofill/lighthouse audit.
     const helper = containerRef.current.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null
