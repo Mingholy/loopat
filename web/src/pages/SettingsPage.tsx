@@ -38,7 +38,10 @@ import { PresetsPanel } from "../components/settings/PresetsPanel"
 import { getAdminPresets, type ProviderPreset } from "../api"
 import { TokenUsagePage } from "./TokenUsagePage"
 import { useWorkspace } from "@/ctx"
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertCircle, Lock, FileCode2, Search, User, Cpu, Terminal, Layers, BarChart3, Users, Globe, Share2, KeyRound, Copy, Wrench, Bookmark } from "lucide-react"
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertCircle, Lock, FileCode2, Search, User, Cpu, Terminal, Layers, BarChart3, Users, Globe, Share2, KeyRound, Copy, Wrench, Bookmark, GripVertical } from "lucide-react"
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
+import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
@@ -379,12 +382,18 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
   const [testingModel, setTestingModel] = useState<Record<string, string>>({})
   const [testError, setTestError] = useState<Record<string, string>>({})
   const [providerPresets, setProviderPresets] = useState<ProviderPreset[]>([])
+  const [providerOrder, setProviderOrder] = useState<string[]>([])
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  )
 
   useEffect(() => { getAdminPresets().then(d => setProviderPresets(d.providerPresets)).catch(() => {}) }, [])
 
   useEffect(() => {
-    if (!disk) { setDraft(null); setSaved(false); return }
+    if (!disk) { setDraft({ default: "", providers: {} }); setProviderOrder([]); return }
     const next: ProvidersDraft = { default: "", providers: {} }
+    const order: string[] = []
     for (const [name, val] of Object.entries(disk.providers)) {
       if (name === "default") {
         if (typeof val === "string") next.default = val
@@ -403,12 +412,14 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
           apiKeyNewValue: "",
           apiKeyStored: !!refInfo?.exists,
         }
+        order.push(name)
       }
     }
     setDraft(next)
+    setProviderOrder(order)
   }, [disk, refExists])
 
-  const names = draft ? Object.keys(draft.providers) : []
+  const names = providerOrder.filter(n => draft?.providers[n])
 
   const updateProv = (name: string, patch: Partial<ProvidersDraft["providers"][string]>) => {
     setDraft((d) => {
@@ -424,6 +435,7 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
       const clearDefault = d.default === name || d.default.startsWith(`${name}/`)
       return { ...d, providers: rest, default: clearDefault ? "" : d.default }
     })
+    setProviderOrder((o) => o.filter(n => n !== name))
   }
 
   const updateModel = (provName: string, modelId: string, patch: Partial<ModelEntry>) => {
@@ -498,7 +510,6 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
       if (!d || !d.providers[oldName]) return d
       if (d.providers[newName]) return d
       const { [oldName]: prov, ...rest } = d.providers
-      // Update default: if default starts with "oldName/" or equals oldName, rewrite to newName
       let newDefault = d.default
       if (d.default === oldName) {
         newDefault = newName
@@ -507,6 +518,7 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
       }
       return { ...d, default: newDefault, providers: { ...rest, [newName]: prov } }
     })
+    setProviderOrder((o) => o.map(n => n === oldName ? newName : n))
     setEditingProvName(null)
   }
 
@@ -522,6 +534,7 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
         apiKeyNewValue: "", apiKeyStored: false,
       } } }
     })
+    setProviderOrder((o) => o.includes(n) ? o : [...o, n])
     setNewName("")
     setAdding(false)
     setErr(null)
@@ -542,7 +555,9 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
     }
     const providersOut: Record<string, ProviderDisk | string> = {}
     if (draft.default) providersOut.default = draft.default
-    for (const [name, p] of Object.entries(draft.providers)) {
+    for (const name of providerOrder) {
+      const p = draft.providers[name]
+      if (!p) continue
       const models: ModelEntry[] = p.models
         .filter(m => m.id.trim())
         .map(m => ({
@@ -577,18 +592,35 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
     onChanged()
   }
 
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setProviderOrder((prev) => {
+      const oldIdx = prev.indexOf(active.id as string)
+      const newIdx = prev.indexOf(over.id as string)
+      if (oldIdx < 0 || newIdx < 0) return prev
+      return arrayMove(prev, oldIdx, newIdx)
+    })
+  }
+
   if (!draft) return <div className="text-[12px] text-gray-400 italic">no providers yet</div>
 
   return (
     <div className="flex flex-col gap-3">
+      <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={names} strategy={verticalListSortingStrategy}>
       {names.map((name) => {
         const p = draft.providers[name]
         const isAddingModel = addingModel[name] ?? false
         const hasKey = p.apiKeyStored || p.apiKeyNewValue.trim() !== ""
         return (
-          <div key={name} className="bg-white border border-gray-200 rounded-lg overflow-hidden transition-shadow hover:shadow-sm">
+          <SortableProviderCard key={name} id={name}>
+            {(dragHandleProps) => (<>
             {/* Provider header */}
             <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50/50 border-b border-gray-100">
+              <button type="button" className="shrink-0 cursor-grab text-gray-300 hover:text-gray-500 active:cursor-grabbing touch-none" {...dragHandleProps} title="drag to reorder">
+                <GripVertical size={14} />
+              </button>
               <label className="flex items-center gap-2.5 flex-1 min-w-0 select-none">
                 <Switch
                   checked={p.enabled}
@@ -815,9 +847,20 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
                 </div>
               </div>
             </div>
-          </div>
+          </>)}
+          </SortableProviderCard>
         )
       })}
+      </SortableContext>
+      </DndContext>
+
+      {/* Fallback order hint */}
+      {names.length > 1 && (
+        <div className="text-[11px] text-gray-400 px-1 flex items-center gap-1">
+          <GripVertical size={10} className="inline shrink-0" />
+          Drag to reorder — when a provider is unavailable, the next enabled one is used as fallback.
+        </div>
+      )}
 
       {/* Preset provider shortcuts */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -843,6 +886,7 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
                   },
                 }
               })
+              setProviderOrder((o) => o.includes(p.name) ? o : [...o, p.name])
             }}
             className="px-2 py-0.5 rounded border border-gray-200 bg-white text-[10px] text-gray-500 hover:text-gray-900 hover:border-gray-400 transition-colors"
             title={`Add ${p.name} preset`}
@@ -882,6 +926,20 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
         </Button>
       </div>
 
+    </div>
+  )
+}
+
+function SortableProviderCard({ id, children }: { id: string; children: (dragHandleProps: Record<string, unknown>) => ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : undefined,
+  }
+  return (
+    <div ref={setNodeRef} style={style} className="bg-white border border-gray-200 rounded-lg overflow-hidden transition-shadow hover:shadow-sm">
+      {children({ ...attributes, ...listeners })}
     </div>
   )
 }
