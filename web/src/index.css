@@ -453,3 +453,9 @@ html, body {
     font: inherit;
   }
 }
+
+/* Keep the copy button visible on the last assistant message, mirroring ChatGPT's behavior.
+ * Unlayered so it wins over Tailwind's opacity-0 utility (which sits in @layer utilities). */
+[data-role="assistant"]:not(:has(~ [data-role="assistant"])) .aui-msg-copy {
+  opacity: 1;
+}

@@ -35,7 +35,10 @@ const CodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => {
   };
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded-t-lg border border-gray-700 border-b-0 bg-gray-800 px-3 py-1.5 text-xs">
+    <div
+      data-copy-ignore=""
+      className="flex select-none items-center justify-between gap-2 rounded-t-lg border border-gray-700 border-b-0 bg-gray-800 px-3 py-1.5 text-xs"
+    >
       <span className="font-medium text-gray-400 lowercase">
         {language || "text"}
       </span>
