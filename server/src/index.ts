@@ -3165,6 +3165,8 @@ app.get(
               const selectedModel = typeof msg.model === "string" ? msg.model : undefined
               // Persist to loop meta so it survives reloads
               patchLoopMeta(id, { config: { default_model: msg.provider, default_model_source: source, ...(selectedModel ? { default_model_id: selectedModel } : {}) } }).catch(() => {})
+              const newDefault = selectedModel ? `${msg.provider}/${selectedModel}` : msg.provider
+              savePersonalConfig(userId, { default: newDefault }).catch(() => {})
               try {
                 // Resolve provider info: personal first, then workspace fallback.
                 let p: ProviderConfig | undefined

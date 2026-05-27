@@ -101,6 +101,17 @@ describe("pickProvider — requireKey semantics", () => {
     expect(r?.name).toBe("no-key")
   })
 
+  test("providers with enabled=false are skipped even with apiKey", () => {
+    const disabled = { ...p(), enabled: false }
+    const r = pickProvider(
+      { default: "off", providers: { off: disabled, on: p() } },
+      {},
+      [],
+      true,
+    )
+    expect(r?.name).toBe("on")
+  })
+
   test("returns null when no provider has an apiKey and requireKey=true", () => {
     const r = pickProvider(
       { default: "", providers: { a: p(""), b: p("") } },
