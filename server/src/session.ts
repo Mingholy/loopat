@@ -1027,7 +1027,7 @@ class LoopSession {
           .filter(([_, v]) => v)
           .map(([k]) => k)
         for (const spec of enabled) {
-          const pluginPath = await lookupPluginInstallPath(spec)
+          const pluginPath = await lookupPluginInstallPath(spec, this.id)
           if (!pluginPath) continue
           const pluginName = spec.split("@")[0]
           const skillsDir = join(pluginPath, "skills")
