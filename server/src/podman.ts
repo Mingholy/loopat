@@ -352,6 +352,21 @@ export async function buildVolumeMounts(opts: ContainerOptions): Promise<VolumeM
   // (see ensureLoopImage). The image's MISE_DATA_DIR=/opt/loopat-mise lives
   // outside $HOME so the home-upper overlay can't shadow installed tools.
 
+  // The Containerfile's `useradd` sets /home/loopat in /etc/passwd, but the
+  // sandbox $HOME is V_HOME (/loopat/home/<user>). Tools that resolve ~
+  // via getpwuid(3) — notably openssh-client — read /etc/passwd and ignore
+  // $HOME, so they look under /home/loopat/.ssh/ instead of V_HOME/.ssh/.
+  // Mirror the home overlay and vault home mounts at the passwd home path
+  // so both resolution strategies find the same files.
+  const PASSWD_HOME = "/home/loopat"
+  if (PASSWD_HOME !== virtualHome) {
+    mounts.push({ src: loopHomeUpper(loopId), dst: PASSWD_HOME })
+    for (const m of listVaultHomeMounts(createdBy, vault)) {
+      if (!existsSync(m.src)) continue
+      mounts.push({ src: m.src, dst: join(PASSWD_HOME, m.rel) })
+    }
+  }
+
   return mounts
 }
 

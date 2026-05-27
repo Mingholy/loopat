@@ -80,8 +80,9 @@ describe("buildVolumeMounts — vault/mounts/home/ auto-bind", () => {
     const vaultMounts = mounts.filter((m) =>
       m.src.startsWith(personalVaultMountsHomeDir(USER, "default")),
     )
-    expect(vaultMounts.length).toBe(1)
-    expect(vaultMounts[0].src).toBe(join(mh, ".config"))
+    // 1 at $HOME + 1 mirror at passwd home = 2
+    expect(vaultMounts.length).toBe(2)
+    expect(vaultMounts.every((m) => m.src === join(mh, ".config"))).toBe(true)
   })
 
   test("vault selection: dev vault entries used when vaultName=dev", async () => {
@@ -94,6 +95,26 @@ describe("buildVolumeMounts — vault/mounts/home/ auto-bind", () => {
     const mounts = await buildVolumeMounts({ loopId: LOOP_ID, createdBy: USER, vaultName: "dev" })
     expect(mounts.some((m) => m.src === join(mhDev, ".ssh"))).toBe(true)
     expect(mounts.some((m) => m.src === join(mhDefault, ".gitconfig"))).toBe(false)
+  })
+})
+
+describe("buildVolumeMounts — passwd home mirror (SSH getpwuid fix)", () => {
+  test("vault home mounts are mirrored at /home/loopat/ so SSH finds keys via getpwuid", async () => {
+    await reset()
+    const mh = personalVaultMountsHomeDir(USER, "default")
+    await mkdir(join(mh, ".ssh"), { recursive: true })
+
+    const mounts = await buildVolumeMounts({ loopId: LOOP_ID, createdBy: USER, vaultName: "default" })
+    const passwdHome = "/home/loopat"
+    expect(mounts.some((m) => m.src === join(mh, ".ssh") && m.dst === join(passwdHome, ".ssh"))).toBe(true)
+  })
+
+  test("home overlay is also bound at /home/loopat for .gitconfig etc.", async () => {
+    await reset()
+    const mounts = await buildVolumeMounts({ loopId: LOOP_ID, createdBy: USER })
+    const { loopHomeUpper } = await import("../src/paths")
+    const passwdHome = "/home/loopat"
+    expect(mounts.some((m) => m.src === loopHomeUpper(LOOP_ID) && m.dst === passwdHome)).toBe(true)
   })
 })
 
