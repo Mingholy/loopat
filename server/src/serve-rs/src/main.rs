@@ -305,7 +305,8 @@ fn apply_headers<B>(
             }
         }
     }
-    req = req.header("host", &format!("{target}:{port}"));
+    req = req.header("host", &format!("localhost:{port}"));
+    req = req.header("x-forwarded-host", target);
     req = req.header("x-forwarded-proto", "http");
     req
 }
