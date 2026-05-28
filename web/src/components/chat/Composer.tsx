@@ -181,6 +181,7 @@ export default function Composer({ pickedFile, editorSelection }: { pickedFile?:
     const snapshot = pendingImages;
     if (snapshot.length === 0) return [];
     setPendingImages([]);
+    for (const p of snapshot) URL.revokeObjectURL(p.previewUrl);
     return snapshot.map((p) => ({
       mediaType: p.mediaType,
       data: p.data,
