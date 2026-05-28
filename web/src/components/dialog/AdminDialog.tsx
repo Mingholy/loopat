@@ -384,6 +384,7 @@ export function WorkspacePanel() {
   const renameProvider = (oldName: string) => {
     const newName = provRenameValue.trim()
     if (!newName || newName === oldName || newName === "default") { setEditingProvName(null); return }
+    let warnReEnterKey = false
     setDraft((d) => {
       if (!d || !d.providers[oldName]) return d
       if (d.providers[newName]) return d
@@ -394,8 +395,17 @@ export function WorkspacePanel() {
       } else if (d.default.startsWith(`${oldName}/`)) {
         newDefault = newName + d.default.slice(oldName.length)
       }
-      return { ...d, default: newDefault, providers: { ...rest, [newName]: prov } }
+      // Workspace API keys are stored server-side and never exposed to the
+      // client — so we can't carry the existing ${VAR} ref forward through
+      // a rename. Drop the "stored" indicator and force the user to re-enter
+      // the key under the new name before saving.
+      if (prov.hasKey && !prov.keyDirty) warnReEnterKey = true
+      const renamed = { ...prov, hasKey: false }
+      return { ...d, default: newDefault, providers: { ...rest, [newName]: renamed } }
     })
+    if (warnReEnterKey) {
+      setErr(`已重命名 "${oldName}" → "${newName}"。Workspace API key 不能跨重命名转移，请在保存前重新填 "${newName}" 的 API Key。`)
+    }
     setEditingProvName(null)
   }
 

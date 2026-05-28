@@ -355,6 +355,9 @@ type ProvidersDraft = {
     enabled: boolean
     apiKeyNewValue: string
     apiKeyStored: boolean
+    /** On-disk `${VAR}` template ref preserved verbatim so renames don't lose
+     *  the link to the vault env file. `undefined` for brand-new providers. */
+    apiKeyRef?: string
   }>
 }
 
@@ -402,6 +405,7 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
           enabled: p.enabled !== false,
           apiKeyNewValue: "",
           apiKeyStored: !!refInfo?.exists,
+          apiKeyRef: p.apiKey,
         }
       }
     }
@@ -550,9 +554,15 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
           ...(m.enabled ? {} : { enabled: false }),
           ...(m.maxContextTokens && m.maxContextTokens > 0 ? { maxContextTokens: m.maxContextTokens } : {}),
         }))
+      // If the user typed a new value we just wrote it to `${providerEnvVarName(name)}`
+      // above — point apiKey there. Otherwise keep the on-disk ref so a rename
+      // doesn't disconnect the provider from its existing vault env file.
+      const apiKey = p.apiKeyNewValue.trim()
+        ? `\${${providerEnvVarName(name)}}`
+        : (p.apiKeyRef ?? `\${${providerEnvVarName(name)}}`)
       providersOut[name] = {
         baseUrl: p.baseUrl,
-        apiKey: `\${${providerEnvVarName(name)}}`,
+        apiKey,
         ...(models.length > 0 ? { models } : {}),
         ...(p.maxContextTokens ? { maxContextTokens: Number(p.maxContextTokens) } : {}),
         ...(p.enabled ? {} : { enabled: false }),
