@@ -9,16 +9,22 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { mermaidLanguageComponents } from "./MermaidBlock";
 
 const MarkdownTextImpl = () => {
+  const componentsByLanguage = useMemo(
+    () => ({ mermaid: mermaidLanguageComponents }),
+    [],
+  );
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
       className="aui-md"
       components={defaultComponents}
+      componentsByLanguage={componentsByLanguage}
     />
   );
 };
