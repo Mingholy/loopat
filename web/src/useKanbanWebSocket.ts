@@ -37,7 +37,19 @@ export function useKanbanWebSocket(onUpdate: () => void) {
   useEffect(() => {
     connect()
     return () => {
-      wsRef.current?.close()
+      const ws = wsRef.current
+      if (ws) {
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close()
+          ws.onmessage = null
+          ws.onclose = null
+          ws.onerror = null
+        } else {
+          ws.onclose = null
+          ws.onerror = null
+          ws.close()
+        }
+      }
       wsRef.current = null
     }
   }, [connect])
