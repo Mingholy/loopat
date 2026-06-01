@@ -399,11 +399,8 @@ class LoopSession {
       await composeLoopClaudeConfig(loopId, driver, meta.config?.profiles)
     }
     // Ensure host CC has every marketplace registered + every enabled plugin
-    // installed. We don't need the resolved paths (sandbox sees host
-    // ~/.claude/plugins/ via a wholesale ro-bind in bwrap, and the inner SDK
-    // resolves enabledPlugins natively from settings.json). This is purely
-    // side-effectful: drive `claude plugin marketplace add/remove` +
-    // `claude plugin install` as needed. See plugin-installer.ts.
+    // installed. The CC binary resolves enabledPlugins natively at spawn time
+    // when CLAUDE_CODE_SYNC_PLUGIN_INSTALL is set (see extraEnv below).
     await ensureLoopPluginsInstalled(loopId)
 
     // Nuke CC's MCP-related cache files that linger across spawns:
@@ -456,6 +453,7 @@ class LoopSession {
       ANTHROPIC_API_KEY: provider.apiKey,
       ANTHROPIC_BASE_URL: provider.baseUrl,
       CLAUDE_CONFIG_DIR: V_LOOP_CLAUDE(loopId),
+      CLAUDE_CODE_SYNC_PLUGIN_INSTALL: "1",
     }
     // Override cli's hardcoded model→context-window map for gateway-routed
     // models. Both env vars are required (cli checks DISABLE_COMPACT first
@@ -537,12 +535,6 @@ class LoopSession {
         ...(this.currentPermissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
         systemPrompt: { type: "preset", preset: "claude_code", append: loopatAppend },
         mcpServers,
-        // External marketplace plugins (enabledPlugins in settings.json) are
-        // resolved natively by the inner SDK now — ~/.claude/plugins/ is
-        // ro-bound wholesale, so installed_plugins.json + each installPath is
-        // reachable inside the sandbox. The only thing we still pass via
-        // `plugins:` is the loopat-shipped builtin, which lives under
-        // LOOPAT_INSTALL_DIR (not in CC's plugin cache).
         plugins: [{ type: "local" as const, path: BUILTIN_LOOPAT_PLUGIN_PATH }],
         stderr: (s) => console.error(`[sdk:${loopId.slice(0, 8)}] ${s.trimEnd()}`),
         pathToClaudeCodeExecutable: claudeBinary,
