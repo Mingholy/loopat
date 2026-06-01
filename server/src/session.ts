@@ -212,7 +212,7 @@ const EDIT_TOOLS = new Set(["Write", "Edit", "NotebookEdit"])
 
 const IDLE_TIMEOUT_MS = Number(process.env.LOOPAT_SESSION_IDLE_MS) || 5 * 60 * 1000
 
-type QueuedMessage = { text: string; permissionMode?: SdkPermissionMode }
+type QueuedMessage = { text: string; permissionMode?: SdkPermissionMode; images?: { mediaType: string; data: string }[] }
 
 export type LoopSessionMessageListener = (msg: any) => void
 
@@ -1172,19 +1172,15 @@ class LoopSession {
     console.log(`[loop:${this.id.slice(0, 8)}] detach → viewers=${this.subscribers.size}`)
   }
 
-  async sendUserText(text: string, permissionMode?: SdkPermissionMode) {
+  async sendUserText(text: string, permissionMode?: SdkPermissionMode, images?: { mediaType: string; data: string }[]) {
     updateLoopStatus(this.id, `User: ${text.slice(0, 50)}${text.length > 50 ? "..." : ""}`)
     if (this.generating || this.messageQueue.length > 0 || this.queueProcessing) {
-      this.messageQueue.push({ text, permissionMode })
+      this.messageQueue.push({ text, permissionMode, images })
       this.broadcast({ type: "queue_update", queue: this.messageQueue.map(m => m.text) })
       return
     }
-    // _pushUserMessage can throw BEFORE the query starts (e.g. ensureStarted's
-    // "no provider with a valid apiKey" when the user hasn't set an AI key) —
-    // in which case `consume` never runs and never broadcasts. Catch it here so
-    // the frontend gets a visible error instead of hanging on "Reasoning…".
     try {
-      await this._pushUserMessage(text, permissionMode)
+      await this._pushUserMessage(text, permissionMode, images)
     } catch (e: any) {
       this.generating = false
       const message = e?.message ?? String(e)
@@ -1221,7 +1217,7 @@ class LoopSession {
     return this.pendingQuestions.has(toolUseId)
   }
 
-  private async _pushUserMessage(text: string, permissionMode?: SdkPermissionMode) {
+  private async _pushUserMessage(text: string, permissionMode?: SdkPermissionMode, images?: { mediaType: string; data: string }[]) {
     if (permissionMode && permissionMode !== this.currentPermissionMode) {
       this.currentPermissionMode = permissionMode
       patchLoopMeta(this.id, { config: { permission_mode: permissionMode } }).catch(() => {})
@@ -1241,9 +1237,18 @@ class LoopSession {
       await patchLoopMeta(this.id, { pendingDriverNote: undefined }).catch(() => {})
     }
     await this.ensureStarted()
+    const content: any = images?.length
+      ? [
+          ...images.map((img) => ({
+            type: "image" as const,
+            source: { type: "base64" as const, media_type: img.mediaType, data: img.data },
+          })),
+          { type: "text" as const, text },
+        ]
+      : text
     const userMsg: SDKUserMessage = {
       type: "user",
-      message: { role: "user", content: text },
+      message: { role: "user", content },
       parent_tool_use_id: null,
       uuid: randomUUID(),
     }
