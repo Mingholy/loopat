@@ -2,7 +2,8 @@ import {
   MessagePrimitive,
   useAuiState,
 } from "@assistant-ui/react";
-import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { BrainIcon, ChevronDownIcon, WrenchIcon } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { MarkdownBlock } from "./MarkdownBlock";
 import ToolRenderer from "./ToolRenderer";
 import {
@@ -86,6 +87,49 @@ function getDotType(parts: any[]): DotType {
   return "gray";
 }
 
+/* ─── Collapsible tool-call group ─── */
+
+function ToolCallGroup({ count, hasRunning, children }: { count: number; hasRunning: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const effectiveOpen = hasRunning || open;
+  if (count <= 1) return <>{children}</>;
+  const label = hasRunning
+    ? `${count} tool calls · running`
+    : `${count} tool calls`;
+  return (
+    <Collapsible
+      open={effectiveOpen}
+      onOpenChange={setOpen}
+      className="my-1 overflow-hidden rounded-md border border-gray-100 bg-gray-50/50"
+    >
+      <CollapsibleTrigger
+        data-copy-ignore=""
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs transition-colors hover:bg-gray-100/50 select-none"
+      >
+        <WrenchIcon className="h-3 w-3 shrink-0 text-gray-400" />
+        <span className="text-gray-400">{label}</span>
+        <ChevronDownIcon
+          className={cn(
+            "ml-auto h-3 w-3 shrink-0 text-gray-300 transition-transform",
+            effectiveOpen && "rotate-180",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent
+        className={cn(
+          "overflow-hidden",
+          "data-[state=open]:animate-collapsible-down",
+          "data-[state=closed]:animate-collapsible-up",
+        )}
+      >
+        <div className="border-t border-gray-100 px-1 py-1">
+          {children}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 /* ─── Assistant message ─── */
 
 export default function AssistantMessage() {
@@ -129,6 +173,8 @@ export default function AssistantMessage() {
       groupBy={(part) => {
         if (part.type === "reasoning")
           return ["group-chainOfThought", "group-reasoning"];
+        if (part.type === "tool-call")
+          return ["group-toolCalls"];
         return null;
       }}
     >
@@ -179,6 +225,17 @@ export default function AssistantMessage() {
                   </div>
                 </CollapsibleContent>
               </Collapsible>
+            );
+          }
+          case "group-toolCalls": {
+            const indices: number[] = (part as any).indices ?? [];
+            const groupHasRunning = indices.some(
+              (i: number) => (messageParts[i] as any)?.status?.type === "running",
+            );
+            return (
+              <ToolCallGroup count={indices.length} hasRunning={groupHasRunning}>
+                {children}
+              </ToolCallGroup>
             );
           }
           case "text": {
