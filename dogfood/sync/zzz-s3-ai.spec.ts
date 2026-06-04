@@ -3,28 +3,22 @@
  * as S1 but the writer is a real loop AI instead of the no-AI UI loop, proving
  * the two are isomorphic across servers. Costs one idealab turn → runs last.
  */
-import { test, expect, request, type APIRequestContext, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createBLoopAndWaitSandbox, sandboxRead, cleanup, runningContainers } from "./loop-helper";
 
 type Meta = { aVite: number; bVite: number; fixtureContainer: string };
 function meta(): Meta { return JSON.parse(readFileSync(join(import.meta.dirname, ".test-meta.json"), "utf8")); }
 function fixtureNotesLog(): string {
   return execFileSync("podman", ["exec", meta().fixtureContainer, "git", "-c", "safe.directory=*", "-C", "/srv/git/notes.git", "log", "--oneline", "--all"]).toString().trim();
 }
-function runningContainers(loopId: string): string[] {
-  return execFileSync("podman", ["ps", "--filter", `label=loopat.loop-id=${loopId}`, "--filter", "status=running", "--format", "{{.Names}}"]).toString().split("\n").map(s => s.trim()).filter(Boolean);
-}
-function cleanup(loopId: string) {
-  if (!loopId) return;
-  try { const ids = execFileSync("podman", ["ps", "-a", "--filter", `label=loopat.loop-id=${loopId}`, "--format", "{{.ID}}"]).toString().split("\n").map(s => s.trim()).filter(Boolean); if (ids.length) execFileSync("podman", ["rm", "-f", ...ids]); } catch {}
-}
 
-let loopId = "";
-test.afterAll(() => cleanup(loopId));
+let loopId = "", bLoopId = "";
+test.afterAll(() => { cleanup(loopId); cleanup(bLoopId); });
 
-test("S3 AI loop on A edits notes -> origin -> B sees", async ({ page }) => {
+test("S3 AI loop on A edits notes -> origin -> B sees", async ({ page, browser }) => {
   test.setTimeout(420_000);
   const stamp = Date.now(), msg = `s3 ai notes ${stamp}`;
   await page.addInitScript(() => localStorage.setItem("loopat:setupPersonalRepoDismissed", "1"));
@@ -49,18 +43,14 @@ test("S3 AI loop on A edits notes -> origin -> B sees", async ({ page }) => {
   await expect.poll(fixtureNotesLog, { timeout: 240_000, intervals: [2000, 3000, 5000] }).toContain(msg);
   console.log("[sync] S3 AI commit reached origin");
 
-  // Convergence is the point: B's source of truth is the SHARED origin, which
-  // now carries the AI's commit (asserted above). B reaches it: a fresh loop on
-  // B clones notes from origin, so its per-user notes worktree carries the AI's
-  // file (B's UI worktree may have diverged from earlier cases — irrelevant; the
-  // SoT is what matters). Prove B sees the AI's pushed file in its fresh clone.
+  // Convergence is the point: B's SoT is the SHARED origin, which now carries the
+  // AI's commit (asserted above). B reaches it AT LOOP LEVEL — a fresh loop on B
+  // clones notes from origin into its sandbox; we exec into B's container and read
+  // the AI's actual file. (B's UI worktree may have diverged from earlier cases —
+  // irrelevant; the SoT is the origin, and the loop clones from it.)
   const m = meta();
-  const b = await request.newContext({ baseURL: `http://127.0.0.1:${m.bVite}`, storageState: join(import.meta.dirname, ".authB.json") });
-  // B's source of truth is the SAME notes origin; B fetches it and its server
-  // reports the AI commit reachable from origin/master — across-server convergence.
-  const beforeB = (await (await b.get("/api/notes/behind")).json()).behind;
-  await expect.poll(async () => (await b.post("/api/notes/refresh")).ok(), { timeout: 60_000, intervals: [2000, 3000] }).toBeTruthy();
-  console.log(`[sync] S3 B fetched shared origin (behind was ${beforeB}); origin carries AI commit`);
-  await b.dispose();
-  console.log("[sync] S3 GREEN: AI edit on A converged to B");
+  bLoopId = await createBLoopAndWaitSandbox(browser, m.bVite, `s3-b-${stamp}`);
+  expect(sandboxRead(bLoopId, `/loopat/context/notes/s3-${stamp}.md`)).toBe("DONE");
+  console.log(`[sync] S3 B loop sandbox read /loopat/context/notes/s3-${stamp}.md = DONE`);
+  console.log("[sync] S3 GREEN: AI edit on A converged to B at loop level");
 });

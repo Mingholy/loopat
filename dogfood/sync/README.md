@@ -20,10 +20,10 @@ push); S3 swaps that for a real loop AI. Preconditions FAIL-not-skip: `podman`,
 |------|--------|
 | S0 | both servers boot and clone the shared origin |
 | S1 | shared repo: A edits notes via UI → push origin → B sees it |
-| S2 | shared kn advances; A's personal note stays isolated to A |
+| S2 | shared kn advances → B sees it at LOOP level (B spins a loop, sandbox clones kn from origin, `podman exec cat`); A's personal note stays isolated to A |
 | S4 | different files concurrently → git auto-merges, both servers have both |
 | S5 | same-file conflict outside-loop → first lands, second ff-fails → kept-local + held back, NOT on SoT (the soul case) |
-| S3 | the writer is a real loop AI instead of the UI loop → still converges on B (runs last; one idealab turn) |
+| S3 | the writer is a real loop AI on A → B converges at LOOP level (B spins a loop, sandbox clones notes from origin, `podman exec cat` shows the file) (runs last; one idealab turn) |
 
 ## Run
 

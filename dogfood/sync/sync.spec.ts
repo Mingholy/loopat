@@ -12,6 +12,7 @@ import { test, expect, request, type APIRequestContext } from "@playwright/test"
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createBLoopAndWaitSandbox, sandboxRead, cleanup } from "./loop-helper";
 
 type Meta = {
   aVite: number; bVite: number; fixtureContainer: string; hostIp: string;
@@ -67,23 +68,29 @@ test("S1 shared personal repo: A edits notes via UI -> origin -> B sees it", asy
   console.log("[sync] S1 GREEN: A->origin->B notes converged");
 });
 
-test("S2 same kn shared, personal isolated: A distills knowledge -> B sees; personal stays local", async () => {
+let s2LoopId = "";
+test.afterAll(() => cleanup(s2LoopId));
+test("S2 same kn shared, personal isolated: A advances knowledge -> B sees at loop level; personal stays local", async ({ browser }) => {
+  test.setTimeout(420_000);
   const stamp = Date.now();
   const beforeK = fixtureKnowledgeLog();
   await writeNote(aApi, `s2-personal-A-${stamp}.md`, "alice-only");
-  // knowledge promote via loop is gated; here prove kn pointer is shared via a
-  // direct fixture write + B re-clone. A's personal note does NOT cross to B.
+  // A advances kn on origin: this direct-podman kn push stands in for a distill
+  // (kn promote via loop is gated). A's personal note does NOT cross to B.
   execFileSync("podman", ["exec", ctn(), "sh", "-c",
     `set -e; export HOME=/root GIT_AUTHOR_NAME=fx GIT_AUTHOR_EMAIL=f@l GIT_COMMITTER_NAME=fx GIT_COMMITTER_EMAIL=f@l; git config --global --add safe.directory '*'; d=$(mktemp -d); git clone -q /srv/git/knowledge.git $d/k; echo kn-${stamp} > $d/k/s2-kn.md; git -C $d/k add -A; git -C $d/k commit -qm 'kn ${stamp}'; git -C $d/k push -q origin master`]);
   expect(fixtureKnowledgeLog()).not.toBe(beforeK);
-  // Shared kn pointer = same origin (both configs point here); kn advanced above.
-  // B SEEING kn through the product needs a loop (kn has no UI pull endpoint —
-  // read-only-to-others, cloned only into a sandbox) — that path is S3-shaped and
-  // deferred; here we assert only what the UI exposes: personal isolation.
-  // B's notes worktree must NOT contain A's personal note (separate server).
+  // B SEES shared kn only through a loop: kn has no UI pull endpoint (read-only-
+  // to-others, cloned only into a sandbox at loop creation). So B spins a real
+  // loop; its sandbox clones kn from the SHARED origin; we exec in and read it.
+  const m = meta();
+  s2LoopId = await createBLoopAndWaitSandbox(browser, m.bVite, `s2-${stamp}`);
+  expect(sandboxRead(s2LoopId, "/loopat/context/knowledge/s2-kn.md")).toBe(`kn-${stamp}`);
+  console.log(`[sync] S2 B loop sandbox read /loopat/context/knowledge/s2-kn.md = kn-${stamp}`);
+  // Personal isolation: B's notes worktree must NOT carry A's personal note.
   await refreshNotes(bApi);
   expect(await readNote(bApi, `s2-personal-A-${stamp}.md`)).toBeNull();
-  console.log("[sync] S2 GREEN: shared kn advanced + personal note isolated to A");
+  console.log("[sync] S2 GREEN: B sees shared kn at loop level + personal note isolated to A");
 });
 
 test("S4 concurrent different files: A and B push different notes -> both land", async () => {
