@@ -1608,6 +1608,29 @@ export async function ffUpdateUiNotes(
 }
 
 /**
+ * Take-remote: discard the user's held-back notes edits and reset hard to
+ * origin. The escape hatch from a same-spot conflict the rebase can't clear —
+ * "drop this edit, take the remote" (the other half is keep-mine via a loop AI
+ * merge). Destructive by design; the UI confirms first.
+ */
+export async function discardUiNotes(
+  user: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const dir = uiNotesDir(user)
+  await ensureUiNotesWorktree(user)
+  const branch = await remoteDefaultBranch(dir)
+  try {
+    await execFileP("git", ["-C", dir, "fetch", "origin"], {
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: sshCommandForUser(user) }, timeout: 30_000,
+    })
+    await execFileP("git", ["-C", dir, "reset", "--hard", `origin/${branch}`])
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: `discard failed: ${e?.stderr ?? e?.message ?? e}` }
+  }
+}
+
+/**
  * How many commits the user's notes worktree is behind origin/main (after a
  * fetch). Drives the "remote updated" hint. 0 = up to date.
  */

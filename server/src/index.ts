@@ -4,7 +4,7 @@ import { createBunWebSocket } from "hono/bun"
 import { existsSync } from "node:fs"
 import { execFile, execFileSync } from "node:child_process"
 import { promisify } from "node:util"
-import { listLoops, createLoop, getLoop, loopExists, patchLoopMeta, backfillAllMounts, ensureWorkspaceDirs, provisionUserPersonal, importPersonalFromRepo, setupPersonalViaProvider, listPersonalReposViaProvider, authenticateViaProvider, isPersonalFresh, ensureUiNotesWorktree, syncUiNotes, ffUpdateUiNotes, notesBehind, inspectPersonalDirty, syncPersonalToRemote, deletePersonalVault, pullPersonalFromRemote, pushPersonalToRemote, ensureContextMounts, effectiveDriver, isDriver, distillLoop, inspectRepoSync, pullRepoFromRemote, pushRepoToRemote, listVaultPublicKeys, userOnboarding, submitOnboarding } from "./loops"
+import { listLoops, createLoop, getLoop, loopExists, patchLoopMeta, backfillAllMounts, ensureWorkspaceDirs, provisionUserPersonal, importPersonalFromRepo, setupPersonalViaProvider, listPersonalReposViaProvider, authenticateViaProvider, isPersonalFresh, ensureUiNotesWorktree, syncUiNotes, ffUpdateUiNotes, discardUiNotes, notesBehind, inspectPersonalDirty, syncPersonalToRemote, deletePersonalVault, pullPersonalFromRemote, pushPersonalToRemote, ensureContextMounts, effectiveDriver, isDriver, distillLoop, inspectRepoSync, pullRepoFromRemote, pushRepoToRemote, listVaultPublicKeys, userOnboarding, submitOnboarding } from "./loops"
 import { getEphemeralHostPort, probePodman, stopAllWorkspaceContainers, ensureServeContainer, ensurePortProxyContainer, ensureSandboxImage } from "./podman"
 import { startMcpAuth, completeMcpAuth, probeOAuthSupport, evictOAuthProbe, parseBearerEnvName, mcpRequiredEnvs, parseTemplateVars, type OAuthSupport } from "./mcp-oauth"
 import { DEFAULT_VAULT, loadVaultEnvs } from "./vaults"
@@ -2389,6 +2389,15 @@ app.post("/api/notes/refresh", requireAuth, async (c) => {
   const userId = c.get("userId") as string
   const r = await ffUpdateUiNotes(userId)
   if (!r.ok) return c.json({ ok: false, diverged: r.diverged ?? false, error: r.error }, r.diverged ? 200 : 400)
+  return c.json({ ok: true })
+})
+
+// Take-remote: drop held-back local notes edits, reset hard to origin. The
+// escape hatch when save reports a same-spot conflict it can't rebase past.
+app.post("/api/notes/discard", requireAuth, async (c) => {
+  const userId = c.get("userId") as string
+  const r = await discardUiNotes(userId)
+  if (!r.ok) return c.json({ error: r.error }, 400)
   return c.json({ ok: true })
 })
 

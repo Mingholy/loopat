@@ -45,6 +45,7 @@ async function writeNote(api: APIRequestContext, path: string, content: string) 
 async function saveNotes(api: APIRequestContext) { return api.post("/api/notes/save"); }
 async function refreshNotes(api: APIRequestContext) { return api.post("/api/notes/refresh"); }
 async function deleteNote(api: APIRequestContext, path: string) { return api.delete(`/api/workspace/file?vault=notes&path=${encodeURIComponent(path)}`); }
+async function discardNotes(api: APIRequestContext) { return api.post("/api/notes/discard"); }
 
 let aApi: APIRequestContext, bApi: APIRequestContext;
 test.beforeAll(async () => { const m = meta(); aApi = await ctx(m.aVite, ".authA.json"); bApi = await ctx(m.bVite, ".authB.json"); });
@@ -123,18 +124,13 @@ test("S5 same-file conflict: first lands, second held-back kept-local NOT on SoT
 });
 
 // S6 — held-back RECOVERY: S5's other half. Set up the SAME conflict, then prove
-// origin converges. Recovery directions the product exposes are: save, behind,
-// refresh — and nothing else. There is NO notes discard/force/take-remote/reset
-// endpoint, so:
-//   (a) take-remote: B accepts origin by rewriting its file to A's content. B's
-//       VIEW converges (reads "A wins"), and the SoT is never corrupted — origin
-//       keeps exactly "A wins". This is the only direction the no-AI UI loop
-//       supports; it never re-pushes the conflicting commit, so SoT stays clean.
-//   (b) keep-mine is GENUINELY IMPOSSIBLE without a manual git escape hatch: B's
-//       conflicting commit stays sticky (ahead/behind) and every re-save replays
-//       it onto origin → 409 again. We assert that rather than fake a resolve.
-// Either way the conflict is never buried on origin.
-test("S6 held-back recovery: take-remote converges, keep-mine impossible, SoT stays clean", async () => {
+// the product's take-remote escape hatch (POST /api/notes/discard) clears it:
+//   1. B held-back (409, sticky conflicting commit, every re-save still 409).
+//   2. take-remote: discard drops B's edit + resets to origin → B reads "A wins",
+//      held-back gone, B can save fresh edits again. SoT stays exactly "A wins".
+// (keep-mine — landing B's content over A's — is the loop-AI-merge path, not the
+// no-AI UI loop; out of scope for the minimal discard fix.)
+test("S6 held-back recovery: discard (take-remote) clears the conflict, SoT stays clean", async () => {
   const stamp = Date.now(), file = `s6-${stamp}.md`;
   await refreshNotes(aApi); await refreshNotes(bApi);
   await writeNote(aApi, file, "A wins"); expect((await saveNotes(aApi)).ok()).toBeTruthy();
@@ -142,18 +138,15 @@ test("S6 held-back recovery: take-remote converges, keep-mine impossible, SoT st
   await refreshNotes(bApi);
   await writeNote(bApi, file, "B conflicting");
   expect((await saveNotes(bApi)).status(), "B held-back").toBe(409);
-  // (a) take-remote: B accepts origin's content; save no longer needed, origin clean.
-  await writeNote(bApi, file, "A wins");
-  await refreshNotes(bApi);
+  expect((await saveNotes(bApi)).status(), "still sticky before discard").toBe(409);
+  // take-remote: the real endpoint clears the held-back state.
+  expect((await discardNotes(bApi)).ok(), "discard").toBeTruthy();
   expect(await readNote(bApi, file)).toBe("A wins");
+  // held-back cleared: a fresh edit on a DIFFERENT file now lands cleanly.
+  await writeNote(bApi, `s6-after-${stamp}.md`, "B unblocked");
+  expect((await saveNotes(bApi)).ok(), "B saves again after discard").toBeTruthy();
   await refreshNotes(aApi); expect(await readNote(aApi, file)).toBe("A wins");
-  // (b) keep-mine is impossible: B's sticky conflicting commit blocks every save.
-  await writeNote(bApi, file, "B wins final");
-  expect((await saveNotes(bApi)).status(), "keep-mine still held-back, no escape").toBe(409);
-  await refreshNotes(aApi); expect(await readNote(aApi, file)).toBe("A wins");
-  // origin log carries A's content only — no buried conflict ever lands.
-  expect((await aApi.get(`/api/workspace/file?vault=notes&path=${encodeURIComponent(file)}`)).ok()).toBeTruthy();
-  console.log("[sync] S6 GREEN: take-remote converges B's view, keep-mine impossible, SoT = A wins (no buried conflict)");
+  console.log("[sync] S6 GREEN: discard cleared held-back, B back in sync, SoT = A wins");
 });
 
 // S7 — deletion propagation: a delete converges like an edit. A creates+saves a
@@ -161,12 +154,8 @@ test("S6 held-back recovery: take-remote converges, keep-mine impossible, SoT st
 // origin log carries the deletion commit.
 test("S7 deletion propagation: A deletes a note -> origin -> B sees it gone", async () => {
   const stamp = Date.now(), file = `s7-${stamp}.md`;
-  // S5/S6 left B's worktree held-back (ahead of origin) — the product has no
-  // discard endpoint, so a user's only escape is git. Reset B to origin so it can
-  // ff-pull again, then prove a deletion converges like any edit.
-  const bNotes = join(meta().homeB, "ui", "bob", "notes");
-  await refreshNotes(bApi); // populates B's origin/master tracking ref
-  execFileSync("git", ["-C", bNotes, "reset", "--hard", "origin/master"]);
+  // S5/S6 may leave B's worktree held-back; the real escape hatch is discard.
+  await discardNotes(bApi);
   await refreshNotes(aApi); await refreshNotes(bApi);
   await writeNote(aApi, file, "to be deleted"); expect((await saveNotes(aApi)).ok()).toBeTruthy();
   await expect.poll(fixtureNotesLog, { timeout: 30_000 }).toContain(file);
