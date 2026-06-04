@@ -23,6 +23,8 @@ push); S3 swaps that for a real loop AI. Preconditions FAIL-not-skip: `podman`,
 | S2 | shared kn advances → B sees it at LOOP level (B spins a loop, sandbox clones kn from origin, `podman exec cat`); A's personal note stays isolated to A |
 | S4 | different files concurrently → git auto-merges, both servers have both |
 | S5 | same-file conflict outside-loop → first lands, second ff-fails → kept-local + held back, NOT on SoT (the soul case) |
+| S6 | held-back recovery: only `save`/`behind`/`refresh` exist — no discard/force endpoint. take-remote (B rewrites file to origin's content) converges B's view; keep-mine is genuinely impossible (sticky conflicting commit → save always 409); SoT stays "A wins", no buried conflict |
+| S7 | deletion propagation: A deletes+saves a note → deletion commit lands origin → B refresh → gone on B; a delete converges like an edit |
 | S3 | the writer is a real loop AI on A → B converges at LOOP level (B spins a loop, sandbox clones notes from origin, `podman exec cat` shows the file) (runs last; one idealab turn) |
 
 ## Run
