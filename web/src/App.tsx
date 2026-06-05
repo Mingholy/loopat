@@ -134,6 +134,19 @@ function Shell({ ws }: { ws: WorkspaceState }) {
     return () => clearInterval(t)
   }, [loggedIn, shareMode, onboarding])
 
+  // Cmd/Ctrl+Shift+L opens New Loop dialog.
+  useEffect(() => {
+    if (shareMode || !loggedIn) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "L" || e.key === "l")) {
+        e.preventDefault()
+        ws.setNewLoopDialogOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [shareMode, loggedIn, ws])
+
   if (shareMode) {
     return (
       <div className="h-full w-full bg-white text-gray-900">
@@ -187,7 +200,7 @@ function Shell({ ws }: { ws: WorkspaceState }) {
           type="button"
           onClick={() => ws.setNewLoopDialogOpen(true)}
           className="flex items-center gap-1 md:gap-1.5 px-2 md:px-3 h-8 rounded text-sm bg-gray-900 text-white hover:bg-gray-700"
-          title="create new loop"
+          title="create new loop (⇧⌘L / Ctrl+Shift+L)"
         >
           <span className="text-base leading-none">+</span>
           <span className="hidden md:inline">New Loop</span>
