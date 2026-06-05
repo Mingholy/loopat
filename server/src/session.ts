@@ -1243,7 +1243,7 @@ class LoopSession {
             type: "image" as const,
             source: { type: "base64" as const, media_type: img.mediaType, data: img.data },
           })),
-          { type: "text" as const, text },
+          ...(text ? [{ type: "text" as const, text }] : []),
         ]
       : text
     const userMsg: SDKUserMessage = {
@@ -1270,7 +1270,7 @@ class LoopSession {
     this.queueProcessing = true
     const next = this.messageQueue.shift()!
     this.broadcast({ type: "queue_update", queue: this.messageQueue.map(m => m.text) })
-    this._pushUserMessage(next.text, next.permissionMode).catch((e) => {
+    this._pushUserMessage(next.text, next.permissionMode, next.images).catch((e) => {
       console.error("[loopat] queued message failed:", e)
       this.queueProcessing = false
       // Try next message on failure
