@@ -910,9 +910,11 @@ export async function ensureLoopatNetwork(): Promise<void> {
   const r = await runPodman(["network", "exists", LOOPAT_NETWORK], { allowFail: true })
   if (r.code !== 0) {
     console.log(`[podman] creating network ${LOOPAT_NETWORK}`)
-    const create = await runPodman(["network", "create", "--label", `${LABEL_WORKSPACE}=${WORKSPACE}`, LOOPAT_NETWORK])
+    const create = await runPodman(["network", "create", "--label", `${LABEL_WORKSPACE}=${WORKSPACE}`, LOOPAT_NETWORK], { allowFail: true })
     if (create.code !== 0) {
-      throw new Error(`Failed to create podman network ${LOOPAT_NETWORK}: ${create.stderr}`)
+      const msg = create.stderr || ""
+      if (/already used|already exists/i.test(msg)) { /* race: another caller created it */ }
+      else throw new Error(`Failed to create podman network ${LOOPAT_NETWORK}: ${msg}`)
     }
   }
   _networkReady = true

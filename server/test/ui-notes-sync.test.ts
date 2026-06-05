@@ -13,25 +13,38 @@ import { promisify } from "node:util"
 import { execFile } from "node:child_process"
 
 const run = promisify(execFile)
+
+process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+process.env.LOOPAT_HOME ??= `/tmp/loopat-uinotes-${process.pid}`
+
 const g = (args: string[], cwd?: string) => run("git", cwd ? ["-C", cwd, ...args] : args)
 
-let home: string
 let loops: any
 let paths: any
 let wt: string
+let origin: string
 let other: string
 const user = "uitest"
 
 beforeAll(async () => {
-  home = await mkdtemp(join(tmpdir(), "loopat-uinotes-"))
-  process.env.LOOPAT_HOME = home
   loops = await import("../src/loops.ts")
   paths = await import("../src/paths.ts")
 
-  const origin = join(home, "notes-origin.git")
-  other = join(home, "other")
+  const lhome = paths.LOOPAT_HOME
+  origin = join(lhome, "notes-origin-uitest.git")
+  other = join(lhome, "other-uitest")
+  const ctx = paths.personalNotesDir(user)
+  wt = paths.uiNotesDir(user)
+
+  // Clean any leftover state from a previous run sharing this LOOPAT_HOME
+  try { await g(["-C", ctx, "worktree", "remove", "--force", wt]) } catch {}
+  await rm(wt, { recursive: true, force: true }).catch(() => {})
+  await rm(ctx, { recursive: true, force: true }).catch(() => {})
+  await rm(origin, { recursive: true, force: true }).catch(() => {})
+  await rm(other, { recursive: true, force: true }).catch(() => {})
+
   await g(["init", "--bare", "-b", "main", origin])
-  const ctx = paths.workspaceNotesDir()
   await mkdir(dirname(ctx), { recursive: true })
   await g(["clone", origin, ctx])
   await writeFile(join(ctx, "seed.md"), "seed\n")
@@ -40,12 +53,17 @@ beforeAll(async () => {
   await g(["push", "origin", "HEAD:main"], ctx)
   await g(["clone", origin, other])
 
-  await loops.ensureUiNotesWorktree(user)
-  wt = paths.uiNotesDir(user)
+  await mkdir(dirname(wt), { recursive: true })
+  await g(["-C", ctx, "worktree", "add", "-B", `ui/${user}`, wt, "origin/main"])
 })
 
 afterAll(async () => {
-  await rm(home, { recursive: true, force: true })
+  const ctx = paths.personalNotesDir(user)
+  try { await g(["-C", ctx, "worktree", "remove", "--force", wt]) } catch {}
+  await rm(wt, { recursive: true, force: true }).catch(() => {})
+  await rm(ctx, { recursive: true, force: true }).catch(() => {})
+  await rm(origin, { recursive: true, force: true }).catch(() => {})
+  await rm(other, { recursive: true, force: true }).catch(() => {})
 })
 
 async function remoteEdit(f: string, c: string, m: string) {
@@ -97,9 +115,7 @@ test("kanban writes land in the user's worktree and push to origin", async () =>
   await kanban.kanbanUserCtx.run(user, async () => {
     await kanban.addCard("default", "todo.md", { text: "hello-kanban" })
   })
-  // written into the per-user notes worktree, under focus/boards/
   expect(existsSync(join(wt, "focus", "boards", "default", "todo.md"))).toBe(true)
-  // pushed by the explicit notes save, like any edit
   const r = await loops.syncUiNotes(user)
   expect(r.ok).toBe(true)
   await g(["fetch", "origin"], other)

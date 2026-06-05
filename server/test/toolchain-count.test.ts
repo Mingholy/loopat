@@ -16,10 +16,11 @@ process.env.LOOPAT_HOME ??= `/tmp/loopat-toolchain-${process.pid}`
 const { countToolchainTools, computeLoopStats } = await import("../src/loop-stats")
 const {
   LOOPAT_HOME,
-  workspaceTeamClaudeDir,
-  workspaceProfileClaudeDir,
+  personalKnowledgeTeamClaudeDir,
+  personalKnowledgeProfileClaudeDir,
 } = await import("../src/paths")
 const TEST_HOME = LOOPAT_HOME
+const USER = "alice"
 
 async function reset() { await rm(TEST_HOME, { recursive: true, force: true }) }
 
@@ -93,44 +94,44 @@ describe("computeLoopStats — toolchain field", () => {
   beforeAll(async () => {
     await reset()
     // Team has 3 tools: python, bun, gh
-    await mkdir(workspaceTeamClaudeDir(), { recursive: true })
-    await writeFile(join(workspaceTeamClaudeDir(), "mise.toml"), `[tools]
+    await mkdir(personalKnowledgeTeamClaudeDir(USER), { recursive: true })
+    await writeFile(join(personalKnowledgeTeamClaudeDir(USER), "mise.toml"), `[tools]
 python = "3.12"
 bun = "latest"
 gh = "latest"
 `)
     // Profile A adds 2 new tools: jq, uv (deduped: 5 total)
-    await mkdir(workspaceProfileClaudeDir("a"), { recursive: true })
-    await writeFile(join(workspaceProfileClaudeDir("a"), "mise.toml"), `[tools]
+    await mkdir(personalKnowledgeProfileClaudeDir(USER, "a"), { recursive: true })
+    await writeFile(join(personalKnowledgeProfileClaudeDir(USER, "a"), "mise.toml"), `[tools]
 jq = "latest"
 uv = "latest"
 `)
     // Profile B overrides bun + adds node (deduped: 1 new = 6 total when both selected)
-    await mkdir(workspaceProfileClaudeDir("b"), { recursive: true })
-    await writeFile(join(workspaceProfileClaudeDir("b"), "mise.toml"), `[tools]
+    await mkdir(personalKnowledgeProfileClaudeDir(USER, "b"), { recursive: true })
+    await writeFile(join(personalKnowledgeProfileClaudeDir(USER, "b"), "mise.toml"), `[tools]
 bun = "1.0.0"
 node = "20"
 `)
   })
 
   test("team-only → 3 toolchain", async () => {
-    const stats = await computeLoopStats([])
+    const stats = await computeLoopStats(USER, [])
     expect(stats.toolchain).toBe(3)
   })
 
   test("team + profile A → 5 (3 + 2 new)", async () => {
-    const stats = await computeLoopStats(["a"])
+    const stats = await computeLoopStats(USER, ["a"])
     expect(stats.toolchain).toBe(5)
   })
 
   test("team + profile A + profile B → 6 (3 team + 2 A + 1 new from B; bun is shared)", async () => {
-    const stats = await computeLoopStats(["a", "b"])
+    const stats = await computeLoopStats(USER, ["a", "b"])
     // python, bun, gh, jq, uv, node = 6 distinct
     expect(stats.toolchain).toBe(6)
   })
 
   test("team + profile B only → 4 (3 + 1 new; bun is overridden but same key)", async () => {
-    const stats = await computeLoopStats(["b"])
+    const stats = await computeLoopStats(USER, ["b"])
     // python, bun, gh, node = 4 (bun dedupes with team's bun)
     expect(stats.toolchain).toBe(4)
   })

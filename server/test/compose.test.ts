@@ -32,6 +32,9 @@ const {
   workspaceProfileClaudeDir,
   personalClaudeDir,
   personalLoopatConfigPath,
+  personalKnowledgeTeamClaudeDir,
+  personalKnowledgeProfileClaudeDir,
+  personalKnowledgeProfilesDir,
 } = await import("../src/paths")
 const TEST_HOME = LOOPAT_HOME
 // Avoid unused-var warning when tests below don't use this in every block
@@ -75,11 +78,11 @@ async function makeClaudeDir(opts: {
 }
 
 async function makeProfile(name: string, opts: Omit<Parameters<typeof makeClaudeDir>[0], "dir">) {
-  await makeClaudeDir({ ...opts, dir: workspaceProfileClaudeDir(name) })
+  await makeClaudeDir({ ...opts, dir: personalKnowledgeProfileClaudeDir("alice", name) })
 }
 
 async function makeTeam(opts: Omit<Parameters<typeof makeClaudeDir>[0], "dir">) {
-  await makeClaudeDir({ ...opts, dir: workspaceTeamClaudeDir() })
+  await makeClaudeDir({ ...opts, dir: personalKnowledgeTeamClaudeDir("alice") })
 }
 
 async function makePersonal(user: string, opts: Omit<Parameters<typeof makeClaudeDir>[0], "dir"> & {
@@ -488,13 +491,13 @@ describe("mise.toml merge (toolchain layer)", () => {
 
   test("union of [tools] across sources, last wins per-key", async () => {
     await makeTeam({ settings: {} })
-    await writeToml(join(workspaceTeamClaudeDir(), "mise.toml"), `
+    await writeToml(join(personalKnowledgeTeamClaudeDir("alice"), "mise.toml"), `
 [tools]
 node = "20"
 python = "3.12"
 `)
     await makeProfile("ml", { settings: {} })
-    await writeToml(join(workspaceProfileClaudeDir("ml"), "mise.toml"), `
+    await writeToml(join(personalKnowledgeProfileClaudeDir("alice", "ml"), "mise.toml"), `
 [tools]
 python = "3.13"
 cuda = "12.4"
@@ -515,13 +518,13 @@ node = "22"
 
   test("union of [env] across sources, last wins per-key", async () => {
     await makeTeam({ settings: {} })
-    await writeToml(join(workspaceTeamClaudeDir(), "mise.toml"), `
+    await writeToml(join(personalKnowledgeTeamClaudeDir("alice"), "mise.toml"), `
 [env]
 NODE_ENV = "development"
 TEAM_FLAG = "true"
 `)
     await makeProfile("p1", { settings: {} })
-    await writeToml(join(workspaceProfileClaudeDir("p1"), "mise.toml"), `
+    await writeToml(join(personalKnowledgeProfileClaudeDir("alice", "p1"), "mise.toml"), `
 [env]
 NODE_ENV = "production"
 PROFILE_FLAG = "yes"
@@ -537,7 +540,7 @@ PROFILE_FLAG = "yes"
 
   test("nested table merge (e.g. [tools.node] = {version, checksum})", async () => {
     await makeTeam({ settings: {} })
-    await writeToml(join(workspaceTeamClaudeDir(), "mise.lock"), `
+    await writeToml(join(personalKnowledgeTeamClaudeDir("alice"), "mise.lock"), `
 [tools.node]
 version = "20.18.0"
 checksum = "abc"
@@ -547,7 +550,7 @@ version = "3.12.7"
 checksum = "def"
 `)
     await makeProfile("p1", { settings: {} })
-    await writeToml(join(workspaceProfileClaudeDir("p1"), "mise.lock"), `
+    await writeToml(join(personalKnowledgeProfileClaudeDir("alice", "p1"), "mise.lock"), `
 [tools.python]
 version = "3.13.0"
 checksum = "jkl"
@@ -578,7 +581,7 @@ checksum = "ghi"
 
   test("only team has mise.toml → merged is team's", async () => {
     await makeTeam({ settings: {} })
-    await writeToml(join(workspaceTeamClaudeDir(), "mise.toml"), `
+    await writeToml(join(personalKnowledgeTeamClaudeDir("alice"), "mise.toml"), `
 [tools]
 node = "20"
 `)
@@ -592,9 +595,9 @@ node = "20"
 
   test("malformed TOML in one source doesn't crash; warns and skips", async () => {
     await makeTeam({ settings: {} })
-    await writeToml(join(workspaceTeamClaudeDir(), "mise.toml"), 'not valid toml [[[')
+    await writeToml(join(personalKnowledgeTeamClaudeDir("alice"), "mise.toml"), 'not valid toml [[[')
     await makeProfile("p1", { settings: {} })
-    await writeToml(join(workspaceProfileClaudeDir("p1"), "mise.toml"), `
+    await writeToml(join(personalKnowledgeProfileClaudeDir("alice", "p1"), "mise.toml"), `
 [tools]
 python = "3.12"
 `)
@@ -608,11 +611,11 @@ python = "3.12"
 
   test("mise.toml independence — different layer adds DIFFERENT tools", async () => {
     await makeTeam({ settings: {} })
-    await writeToml(join(workspaceTeamClaudeDir(), "mise.toml"), `[tools]\nnode = "20"`)
+    await writeToml(join(personalKnowledgeTeamClaudeDir("alice"), "mise.toml"), `[tools]\nnode = "20"`)
     await makeProfile("backend", { settings: {} })
-    await writeToml(join(workspaceProfileClaudeDir("backend"), "mise.toml"), `[tools]\ngo = "1.22"`)
+    await writeToml(join(personalKnowledgeProfileClaudeDir("alice", "backend"), "mise.toml"), `[tools]\ngo = "1.22"`)
     await makeProfile("ml", { settings: {} })
-    await writeToml(join(workspaceProfileClaudeDir("ml"), "mise.toml"), `[tools]\npython = "3.13"`)
+    await writeToml(join(personalKnowledgeProfileClaudeDir("alice", "ml"), "mise.toml"), `[tools]\npython = "3.13"`)
     await makePersonal("alice", { defaultProfiles: ["backend", "ml"] })
 
     const result = await composeLoopClaudeConfig("loop-mise-7", "alice")
@@ -625,7 +628,7 @@ python = "3.12"
   test("orphan mise.lock (no mise.toml in any source) still writes lock", async () => {
     // Edge case: lock present but no toml. Rare but valid.
     await makeTeam({ settings: {} })
-    await writeToml(join(workspaceTeamClaudeDir(), "mise.lock"), `
+    await writeToml(join(personalKnowledgeTeamClaudeDir("alice"), "mise.lock"), `
 [tools.node]
 version = "20.18.0"
 checksum = "abc"
@@ -709,14 +712,14 @@ describe("listProfiles", () => {
   test("returns dirs that have .claude/ subdir", async () => {
     await makeProfile("role-a", {})
     await makeProfile("role-b", {})
-    await mkdir(join(TEST_HOME, "context/knowledge/.loopat/profiles/not-a-profile"), { recursive: true })
+    await mkdir(join(personalKnowledgeProfilesDir("alice"), "not-a-profile"), { recursive: true })
 
-    const names = await listProfiles()
+    const names = await listProfiles("alice")
     expect(names.sort()).toEqual(["role-a", "role-b"])
   })
 
   test("empty when no profiles", async () => {
-    const names = await listProfiles()
+    const names = await listProfiles("alice")
     expect(names).toEqual([])
   })
 })
@@ -873,7 +876,7 @@ async function writeInstalledPlugins(
 describe("compose — installed_plugins.json (plugin version lock)", () => {
   test("team's lock is snapshotted into loops/<id>/.claude/plugins/installed_plugins.json", async () => {
     await makeTeam({ settings: { enabledPlugins: { "cicd@market": true } } })
-    await writeInstalledPlugins(workspaceTeamClaudeDir(), {
+    await writeInstalledPlugins(personalKnowledgeTeamClaudeDir("alice"), {
       "cicd@market": { version: "0.1.0", gitCommitSha: "abc123" },
     })
     await makePersonal("alice", { defaultProfiles: [] })
@@ -887,7 +890,7 @@ describe("compose — installed_plugins.json (plugin version lock)", () => {
 
   test("personal lock overrides team lock per spec (version + sha both replaced)", async () => {
     await makeTeam({ settings: { enabledPlugins: { "cicd@market": true } } })
-    await writeInstalledPlugins(workspaceTeamClaudeDir(), {
+    await writeInstalledPlugins(personalKnowledgeTeamClaudeDir("alice"), {
       "cicd@market": { version: "0.1.0", gitCommitSha: "abc" },
     })
     await makePersonal("alice", { defaultProfiles: [] })
@@ -903,7 +906,7 @@ describe("compose — installed_plugins.json (plugin version lock)", () => {
 
   test("specs only in one tier coexist with specs only in another (per-spec union)", async () => {
     await makeTeam({ settings: { enabledPlugins: { "team-only@m": true } } })
-    await writeInstalledPlugins(workspaceTeamClaudeDir(), {
+    await writeInstalledPlugins(personalKnowledgeTeamClaudeDir("alice"), {
       "team-only@m": { version: "1.0.0", gitCommitSha: "team-sha" },
     })
     await makePersonal("alice", {
@@ -933,7 +936,7 @@ describe("compose — installed_plugins.json (plugin version lock)", () => {
   test("re-running compose with the lock removed cleans up the previous snapshot", async () => {
     // First compose: a lock exists
     await makeTeam({ settings: { enabledPlugins: { "x@m": true } } })
-    await writeInstalledPlugins(workspaceTeamClaudeDir(), {
+    await writeInstalledPlugins(personalKnowledgeTeamClaudeDir("alice"), {
       "x@m": { version: "1.0.0" },
     })
     await makePersonal("alice", { defaultProfiles: [] })
@@ -941,7 +944,7 @@ describe("compose — installed_plugins.json (plugin version lock)", () => {
     expect(first.installedPluginsPath).not.toBeNull()
 
     // Now wipe the lock at the source, re-compose: stale lock must be removed
-    await rm(join(workspaceTeamClaudeDir(), "plugins"), { recursive: true })
+    await rm(join(personalKnowledgeTeamClaudeDir("alice"), "plugins"), { recursive: true })
     const second = await composeLoopClaudeConfig("loop-lock-5", "alice")
     expect(second.installedPluginsPath).toBeNull()
     expect(existsSync(join(loopClaudeDir("loop-lock-5"), "plugins", "installed_plugins.json"))).toBe(false)

@@ -15,6 +15,9 @@ import { promisify } from "node:util"
 import { execFile } from "node:child_process"
 
 const run = promisify(execFile)
+
+process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+process.env.GIT_CONFIG_SYSTEM = "/dev/null"
 const g = (args: string[], cwd?: string) => run("git", cwd ? ["-C", cwd, ...args] : args)
 
 let home: string
@@ -26,13 +29,16 @@ let other: string
 
 beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "loopat-personal-sync-"))
-  process.env.LOOPAT_HOME = home
+  process.env.LOOPAT_HOME ??= home
   loops = await import("../src/loops.ts")
-  pdir = join(home, "personal", user)
+  const paths = await import("../src/paths.ts")
+  pdir = paths.personalDir(user)
   origin = join(home, "origin.git")
   other = join(home, "other")
 
   await g(["init", "--bare", "-b", "main", origin])
+  const { mkdir: mkdirP } = await import("node:fs/promises")
+  await mkdirP(join(pdir, ".."), { recursive: true })
   await g(["clone", origin, pdir])
   await writeFile(join(pdir, "a.txt"), "a1\n")
   await g(["add", "-A"], pdir)
