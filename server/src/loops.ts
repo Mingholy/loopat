@@ -983,6 +983,8 @@ function sshCommandForUser(userId: string, vault: string = "default"): string {
     try {
       const lines = readFileSync(configPath, "utf8").split("\n")
       for (const line of lines) {
+        // Skip comments (SSH config: lines starting with # after optional whitespace)
+        if (/^\s*#/.test(line)) continue
         const m = line.match(/^\s*IdentityFile\s+(.+)/)
         if (!m) continue
         const raw = m[1].trim()
@@ -1013,7 +1015,7 @@ function sshCommandForUser(userId: string, vault: string = "default"): string {
     return `ssh -F /dev/null -o IdentitiesOnly=yes`
   }
 
-  const identity = available.map(k => `-i ${k}`).join(" ")
+  const identity = available.map(k => `-i '${k.replace(/'/g, "'\\''")}'`).join(" ")
   return `ssh -F /dev/null ${identity} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null`
 }
 
@@ -1027,7 +1029,8 @@ function sshCommandForUser(userId: string, vault: string = "default"): string {
  * the recursion of "use a key stored in the repo to reach the repo itself".
  */
 function personalSshCommand(userId: string): string {
-  return `ssh -i ${hostDeployKeyPath(userId)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null`
+  const keyPath = hostDeployKeyPath(userId).replace(/'/g, "'\\''")
+  return `ssh -i '${keyPath}' -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null`
 }
 
 async function swapPersonalDir(
