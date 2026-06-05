@@ -39,8 +39,8 @@ import { getAdminPresets, type ProviderPreset } from "../api"
 import { TokenUsagePage } from "./TokenUsagePage"
 import { useWorkspace } from "@/ctx"
 import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertCircle, Lock, FileCode2, Search, User, Cpu, Terminal, Layers, BarChart3, Users, Globe, Share2, KeyRound, Copy, Wrench, Bookmark, GripVertical } from "lucide-react"
-import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
-import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
+import { SortableContext, useSortable, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -386,6 +386,7 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
   useEffect(() => { getAdminPresets().then(d => setProviderPresets(d.providerPresets)).catch(() => {}) }, [])
