@@ -1,12 +1,30 @@
 import { useEffect, useId, useState } from "react";
 import { CodeIcon, ImageIcon } from "lucide-react";
-import mermaid from "mermaid";
 
-mermaid.initialize({ startOnLoad: false, theme: "default" });
+// Lazy-load mermaid (~2MB) only when a mermaid block is actually rendered.
+let mermaidInstance: typeof import("mermaid").default | null = null;
+let mermaidLoading: Promise<typeof import("mermaid").default> | null = null;
 
-export const mermaidLanguageComponents = {
+function getMermaid(): Promise<typeof import("mermaid").default> {
+  if (mermaidInstance) return Promise.resolve(mermaidInstance);
+  if (!mermaidLoading) {
+    mermaidLoading = import("mermaid").then((m) => {
+      m.default.initialize({ startOnLoad: false, theme: "default" });
+      mermaidInstance = m.default;
+      return mermaidInstance;
+    });
+  }
+  return mermaidLoading;
+}
+
+const mermaidLanguageComponents = {
   SyntaxHighlighter: ({ code }: { code: string }) => <MermaidBlock code={code} />,
   CodeHeader: () => null,
+};
+
+/** Shared componentsByLanguage config — import this instead of duplicating the wiring. */
+export const componentsByLanguage = {
+  mermaid: mermaidLanguageComponents,
 };
 
 export function MermaidBlock({ code }: { code: string }) {
@@ -19,8 +37,8 @@ export function MermaidBlock({ code }: { code: string }) {
     let cancelled = false;
     setError(null);
 
-    mermaid
-      .render(`mermaid${id}`, code)
+    getMermaid()
+      .then((m) => m.render(`mermaid${id}`, code))
       .then(({ svg }) => {
         if (!cancelled) setSvg(svg);
       })

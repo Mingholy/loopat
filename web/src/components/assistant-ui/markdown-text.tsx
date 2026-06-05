@@ -9,18 +9,14 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useMemo, useState } from "react";
+import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
-import { mermaidLanguageComponents } from "@/components/chat/MermaidBlock";
+import { componentsByLanguage } from "@/components/chat/MermaidBlock";
 import { cn } from "@/lib/utils";
 
 const MarkdownTextImpl = () => {
-  const componentsByLanguage = useMemo(
-    () => ({ mermaid: mermaidLanguageComponents }),
-    [],
-  );
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
