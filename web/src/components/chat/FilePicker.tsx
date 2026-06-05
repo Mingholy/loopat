@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { FileText, FolderOpen, ChevronRight, ChevronDown, Search, CornerDownLeft, ArrowUp, ArrowDown } from "lucide-react"
 import { listFiles, listFilesTree, type FileEntry } from "@/api"
 import { cn } from "@/lib/utils"
+import { fuzzyMatch } from "@/lib/fuzzy"
 
 interface FilePickerProps {
   loopId: string
@@ -39,9 +40,16 @@ export function FilePicker({ loopId, onPick, onClose }: FilePickerProps) {
   const showSearch = search.trim().length > 0
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = search.trim()
     if (!q) return []
-    return allFiles.filter((e) => e.type === "file" && (e.path.toLowerCase().includes(q) || e.name.toLowerCase().includes(q)))
+    const scored: { entry: FileEntry; score: number }[] = []
+    for (const e of allFiles) {
+      if (e.type !== "file") continue
+      const best = Math.max(fuzzyMatch(q, e.path) ?? -1, fuzzyMatch(q, e.name) ?? -1)
+      if (best >= 0) scored.push({ entry: e, score: best })
+    }
+    scored.sort((a, b) => b.score - a.score)
+    return scored.map((s) => s.entry)
   }, [allFiles, search])
 
   // Build flat list of visible tree entries

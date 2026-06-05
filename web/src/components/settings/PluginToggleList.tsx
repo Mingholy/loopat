@@ -9,6 +9,7 @@ import {
   type MarketplaceSource,
 } from "@/api"
 import { Switch } from "@/components/ui/switch"
+import { fuzzyMatch } from "@/lib/fuzzy"
 import { Plus, Trash2, Package, Search, RefreshCw, Store, ExternalLink, X, ChevronDown, AlertCircle } from "lucide-react"
 
 export function PluginToggleList({
@@ -228,10 +229,13 @@ function MarketplaceBrowser({
   const filtered = plugins.filter((p) => {
     if (filterMp !== "all" && p.marketplaceName !== filterMp) return false
     if (search.trim()) {
-      const q = search.toLowerCase()
-      if (!p.name.toLowerCase().includes(q) &&
-          !p.marketplaceName.toLowerCase().includes(q) &&
-          !(p.description && p.description.toLowerCase().includes(q))) return false
+      const q = search.trim()
+      const best = Math.max(
+        fuzzyMatch(q, p.name) ?? -1,
+        fuzzyMatch(q, p.marketplaceName) ?? -1,
+        fuzzyMatch(q, p.description ?? "") ?? -1,
+      )
+      if (best < 0) return false
     }
     return true
   })
