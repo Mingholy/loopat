@@ -19,17 +19,23 @@ import { useLoopRuntimeExtra, type AgentMeta } from "@/useLoopRuntime";
 export default function AgentMention() {
   const text = useAuiState((s) => s.composer.text);
   const composerRuntime = useComposerRuntime();
-  const { availableAgents } = useLoopRuntimeExtra();
+  const { availableAgents, suppressSlashRef } = useLoopRuntimeExtra();
   const [selectedIdx, setSelectedIdx] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   const textTrimmed = typeof text === "string" ? text.trimStart() : text;
   // Trigger: text starts with `@` and doesn't contain whitespace yet (i.e.
   // user is still typing the agent name, hasn't moved on to the task).
-  const showDropdown =
+  let showDropdown =
     typeof textTrimmed === "string" &&
     textTrimmed.startsWith("@") &&
     !/\s/.test(textTrimmed);
+  // Suppress dropdown when text was set by history browsing (ArrowUp/Down)
+  // so the menu doesn't interrupt the history-browsing experience.
+  // The flag is reset by Composer on the next user keystroke.
+  if (showDropdown && suppressSlashRef.current) {
+    showDropdown = false;
+  }
 
   const query = showDropdown ? textTrimmed.slice(1).toLowerCase() : "";
 
