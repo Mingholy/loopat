@@ -157,11 +157,16 @@ export default function ChatInterface({ archived = false, onUnarchive, readOnly 
       els.forEach((el) => io.observe(el));
     };
     observeAll();
-    mo = new MutationObserver(() => observeAll());
+    let moTimer: ReturnType<typeof setTimeout> | null = null;
+    mo = new MutationObserver(() => {
+      if (moTimer) clearTimeout(moTimer);
+      moTimer = setTimeout(observeAll, 150);
+    });
     mo.observe(inner, { childList: true, subtree: true });
     return () => {
       io.disconnect();
       mo?.disconnect();
+      if (moTimer) clearTimeout(moTimer);
     };
   }, []);
 
@@ -184,7 +189,7 @@ export default function ChatInterface({ archived = false, onUnarchive, readOnly 
     let frames = 0;
     const tick = () => {
       if (cancelled) return;
-      const el = containerRef.current?.querySelector(`[data-message-id="${scrollTarget}"]`) as HTMLElement | null;
+      const el = containerRef.current?.querySelector(`[data-message-id="${CSS.escape(scrollTarget)}"]`) as HTMLElement | null;
       if (el) {
         el.scrollIntoView({ block: "start", behavior: "smooth" });
         setScrollTarget(null);
