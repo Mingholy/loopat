@@ -300,7 +300,12 @@ app.get("/api/providers", requireAuth, async (c) => {
         }
       }
     }
-    active = pCfg.default || Object.keys(pCfg.providers)[0] || active
+    // Mirror pickProvider's requireKey logic: skip providers whose apiKey
+    // resolved to empty (e.g. unresolved ${VAR} ref with missing vault env).
+    // Otherwise the UI shows a keyless provider as "active" while session.ts
+    // at runtime picks a different one that actually has a key.
+    const firstKeyed = Object.entries(pCfg.providers).find(([_, p]) => p.apiKey)?.[0]
+    active = pCfg.default || firstKeyed || Object.keys(pCfg.providers)[0] || active
   } catch {}
   return c.json({ providers, default: active })
 })
