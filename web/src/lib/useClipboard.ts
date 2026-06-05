@@ -6,10 +6,9 @@ export function useClipboard(duration = 1500) {
 
   const copy = useCallback((text: string) => {
     if (!text || copied) return
-    if (copyToClipboard(text)) {
-      setCopied(true)
-      setTimeout(() => setCopied(false), duration)
-    }
+    copyToClipboard(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), duration)
   }, [copied, duration])
 
   return { copied, copy }
