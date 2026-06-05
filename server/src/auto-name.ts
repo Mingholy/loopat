@@ -22,7 +22,7 @@
  *     idealab-gateway-claude-code-ua.md.
  */
 import { readFile } from "node:fs/promises"
-import { getLoop, patchLoopMeta, listLoops } from "./loops"
+import { effectiveDriver, getLoop, patchLoopMeta, listLoops } from "./loops"
 import { loopHistoryPath } from "./paths"
 import { loadConfig, loadPersonalConfig, type ProviderConfig } from "./config"
 import { listTopics } from "./workspace"
@@ -70,8 +70,8 @@ async function extractFirstTurn(loopId: string): Promise<{ firstUser: string; fi
 /** Collect all candidate providers in priority order (loop config → personal
  *  default → workspace default → remaining). Returns array so callers can
  *  fall back to the next provider when a key is invalid/expired. */
-async function resolveProvidersForLoop(meta: { createdBy: string; config?: { default_model?: string; vault?: string } }): Promise<ProviderConfig[]> {
-  const pCfg = await loadPersonalConfig(meta.createdBy, meta.config?.vault)
+async function resolveProvidersForLoop(meta: { createdBy: string; driver?: string; config?: { default_model?: string; vault?: string } }): Promise<ProviderConfig[]> {
+  const pCfg = await loadPersonalConfig(effectiveDriver(meta), meta.config?.vault)
   const wCfg = await loadConfig()
   const names = [
     meta.config?.default_model,
@@ -112,11 +112,12 @@ User's first message:
 ${firstUser}${assistantBlock}`
 }
 
-const AUTH_FAILED = Symbol("auth_failed")
+/** Sentinel: provider-level failure that should fall through to the next provider. */
+const PROVIDER_FAILED = Symbol("provider_failed")
 
-async function callForTitle(provider: ProviderConfig, userPrompt: string): Promise<string | null | typeof AUTH_FAILED> {
+async function callForTitle(provider: ProviderConfig, userPrompt: string): Promise<string | null | typeof PROVIDER_FAILED> {
   const activeModel = provider.models.find((m) => m.enabled !== false) ?? provider.models[0]
-  if (!activeModel?.id) return AUTH_FAILED
+  if (!activeModel?.id) return PROVIDER_FAILED
   const url = provider.baseUrl.replace(/\/+$/, "") + "/v1/messages"
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 15000)
@@ -138,8 +139,9 @@ async function callForTitle(provider: ProviderConfig, userPrompt: string): Promi
       }),
       signal: ctrl.signal,
     })
-    if (r.status === 401 || r.status === 403) return AUTH_FAILED
-    if (!r.ok) return null
+    // Auth failures, rate limits, server errors → try next provider
+    if (r.status === 401 || r.status === 403 || r.status === 429 || r.status >= 500) return PROVIDER_FAILED
+    if (!r.ok) return PROVIDER_FAILED
     const j: any = await r.json().catch(() => null)
     if (!j?.content || !Array.isArray(j.content)) return null
     const block = j.content.find((b: any) => b?.type === "text")
@@ -150,7 +152,8 @@ async function callForTitle(provider: ProviderConfig, userPrompt: string): Promi
     if (!collapsed || collapsed.length > 80) return null
     return collapsed
   } catch {
-    return null
+    // Network error, timeout (AbortError), DNS failure → try next provider
+    return PROVIDER_FAILED
   } finally {
     clearTimeout(timer)
   }
@@ -182,11 +185,13 @@ export async function maybeAutoName(loopId: string): Promise<boolean> {
     let title: string | null = null
     for (const provider of providers) {
       const result = await callForTitle(provider, prompt)
-      if (result === AUTH_FAILED) {
-        console.warn(`[auto-name] ${loopId.slice(0, 8)} provider ${provider.baseUrl} auth failed, trying next`)
+      if (result === PROVIDER_FAILED) {
+        console.warn(`[auto-name] ${loopId.slice(0, 8)} provider ${provider.baseUrl} failed, trying next`)
         continue
       }
       if (result) { title = result; break }
+      // null = provider responded OK but title wasn't usable (parse issue);
+      // not worth retrying with another provider for the same prompt.
       break
     }
     if (!title) return false
