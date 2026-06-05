@@ -74,7 +74,7 @@ export function pickProvider(
     if (seen.has(name)) continue
     seen.add(name)
     const p = pCfg.providers[name] ?? wCfg.providers?.[name]
-    if (p && (!requireKey || p.apiKey)) return { name, provider: p }
+    if (p && p.enabled !== false && (!requireKey || p.apiKey)) return { name, provider: p }
   }
   return null
 }
