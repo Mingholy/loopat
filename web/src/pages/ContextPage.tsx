@@ -370,7 +370,12 @@ function VaultPane({ vault, initialFile, initialEditing }: { vault: VaultId; ini
       setCreating({ type: action === "new-file" ? "file" : "folder", path: node.path })
       setNewName("")
     } else if (action === "delete") {
-      if (!confirm(`Delete "${node.name}"?`)) return
+      const msg = isSecretFile(vault, node.path)
+        ? `Delete encrypted credential "${node.name}"? This cannot be undone.`
+        : isSecretsFolder(vault, node.path)
+          ? `Delete folder "${node.name}"? Only works if the folder is empty.`
+          : `Delete "${node.name}"?`
+      if (!confirm(msg)) return
       vaultDeleteFile(vault, node.path).then((r) => {
         if (r.ok) {
           setPickedPath((p) => p === node.path ? null : p)
@@ -383,8 +388,19 @@ function VaultPane({ vault, initialFile, initialEditing }: { vault: VaultId; ini
   }, [vault])
 
   const getContextActions = useCallback((node: TreeNodeData): TreeContextAction[] => {
-    if (isSecretsFolder(vault, node.path)) return []
     if (node.type === "dir") {
+      if (isSecretsFolder(vault, node.path)) {
+        // Encrypted dir (vaults container, vault root, or any dir inside one):
+        // building out the credential tree is fine; Delete only succeeds when
+        // the dir is empty (server uses rmdir, not rm -rf) — that way users
+        // can clean up empty leftovers without nuking a whole credential
+        // bundle that's still wired into config.json.
+        return [
+          { label: "New file", icon: <FilePlus size={12} />, action: "new-file" },
+          { label: "New folder", icon: <FolderPlus size={12} />, action: "new-folder" },
+          { label: "Delete", icon: <Trash2 size={12} />, action: "delete", danger: true },
+        ]
+      }
       return [
         { label: "New file", icon: <FilePlus size={12} />, action: "new-file" },
         { label: "New folder", icon: <FolderPlus size={12} />, action: "new-folder" },
@@ -392,7 +408,11 @@ function VaultPane({ vault, initialFile, initialEditing }: { vault: VaultId; ini
       ]
     }
     if (isSecretFile(vault, node.path)) {
-      return []
+      // Encrypted file: Delete only. No View (would expose redacted placeholder);
+      // edit is reached via the row click → DocView's blind-overwrite path.
+      return [
+        { label: "Delete", icon: <Trash2 size={12} />, action: "delete", danger: true },
+      ]
     }
     return [
       { label: "View", icon: <Eye size={12} />, action: "view" },
@@ -593,16 +613,16 @@ function SearchIcon() {
 /**
  * Anything under `.loopat/vaults/<vaultName>/...` is secret-bearing.
  *
- * "secrets folder" = the vault root and any directory inside it (gets the
- * amber "encrypted" treatment in the tree).
+ * "secrets folder" = the `.loopat/vaults` container, every vault root, and
+ * every directory inside a vault (gets the amber "encrypted" treatment in
+ * the tree). Including the container itself prevents a tree-menu "Delete"
+ * from nuking every vault at once.
  * "secret file" = any file inside a vault (Context page redacts on read,
  * lets the user overwrite blind on edit).
  */
 function isSecretsFolder(vault: VaultId, path: string): boolean {
   if (vault !== "personal") return false
-  if (!path.startsWith(".loopat/vaults/")) return false
-  const rest = path.slice(".loopat/vaults/".length)
-  return rest.length > 0
+  return path === ".loopat/vaults" || path.startsWith(".loopat/vaults/")
 }
 function isSecretFile(vault: VaultId, path: string): boolean {
   if (vault !== "personal") return false
