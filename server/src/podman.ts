@@ -426,9 +426,6 @@ export async function buildPodmanCreateArgs(opts: ContainerOptions): Promise<str
 
   const args: string[] = [
     "--name", containerName(opts.loopId),
-    // Self-heal a stale name collision (orphan with our name from a crash) so a
-    // recreate doesn't loop on "name already in use" → 137; we own the name.
-    "--replace",
     "--label", `${LABEL_LOOP}=${opts.loopId}`,
     "--label", `${LABEL_WORKSPACE}=${WORKSPACE}`,
     // --userns=keep-id:uid=2000,gid=2000 maps whatever uid is running
@@ -487,6 +484,8 @@ export async function buildPodmanCreateArgs(opts: ContainerOptions): Promise<str
     args.push("-p", `:${ep.internalPort}${proto}`)
   }
 
+  // Config hash. Covers mounts + opts but NOT env — see hashCreateArgs
+  // doc for why.
   const hash = hashCreateArgs(mounts, opts)
   args.push("--label", `${LABEL_CONFIG_HASH}=${hash}`)
 
@@ -499,11 +498,17 @@ export async function buildPodmanCreateArgs(opts: ContainerOptions): Promise<str
 }
 
 /**
- * Config hash: covers mounts + loop-scoped opts. Deliberately EXCLUDES env
- * — env changes take effect on next session restart (podman exec --env),
- * not via container recreation. The container is a long-lived shell; env
- * is injected per-exec, matching CC's behavior where env changes need an
- * explicit restart to take effect.
+ * Config hash: covers everything that, if changed, would require recreating
+ * the container — mounts + loop-scoped opts. Deliberately EXCLUDES the env
+ * map because different callers (term.ts / session.ts) legitimately pass
+ * different extraEnv (PTY doesn't need ANTHROPIC_API_KEY; SDK does). If we
+ * hashed env, those callers would force-recreate the container on every
+ * activity flip, killing each other's exec'd processes with SIGKILL (the
+ * actual bug behind "PTY exits 137 the moment a chat starts").
+ *
+ * Env still lands in `podman create --env` for convenience (so an exec
+ * without explicit env inherits something sane), but the values that
+ * actually matter at runtime should be passed at exec time anyway.
  */
 function hashCreateArgs(
   mounts: VolumeMount[],
@@ -1274,7 +1279,9 @@ export async function ensureContainer(opts: ContainerOptions, progress?: { onPro
       // This kills any process exec'd into the old container (PTY shells, an
       // active claude CLI). Log loudly so the cause is obvious if the user
       // reports "my terminal disconnected when I sent a chat".
-      const reason = cur.configHash !== desiredHash ? "config hash drift" : "image drift (rebuilt)"
+      const reason = cur.configHash !== desiredHash
+        ? `config hash drift (${cur.configHash} → ${desiredHash})`
+        : "image drift (rebuilt)"
       console.warn(`[podman:${tag}] ${reason} — recreating container; any in-flight exec'd processes will be killed`)
       if (cur.running) await runPodman(["stop", "--time", "5", containerName(opts.loopId)])
       await runPodman(["rm", "--force", containerName(opts.loopId)])
