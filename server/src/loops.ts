@@ -1049,6 +1049,10 @@ export async function importPersonalFromRepo(
  * to the host deploy-key, so a loop never borrows access it wasn't granted
  * (see behavior/02-personal-permissions.md).
  */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
 function sshCommandForUser(userId: string, vault: string = "default"): string {
   const sshDir = join(personalVaultDir(userId, vault), "mounts", "home", ".ssh")
   const vaultKey = join(sshDir, "id_ed25519")
@@ -1059,8 +1063,8 @@ function sshCommandForUser(userId: string, vault: string = "default"): string {
   // use: this fixes every host-side git op AND the file the sandbox bind-mounts
   // into $HOME, regardless of how/when it was checked out. Cheap + idempotent.
   try { chmodSync(vaultKey, 0o600) } catch {}
-  const f = existsSyncBase(vaultConfig) ? `-F ${vaultConfig} ` : ""
-  return `ssh ${f}-i ${vaultKey}`
+  const f = existsSyncBase(vaultConfig) ? `-F ${shellQuote(vaultConfig)} ` : ""
+  return `ssh ${f}-i ${shellQuote(vaultKey)}`
 }
 
 /**
@@ -1073,7 +1077,7 @@ function sshCommandForUser(userId: string, vault: string = "default"): string {
  * the recursion of "use a key stored in the repo to reach the repo itself".
  */
 function personalSshCommand(userId: string): string {
-  return `ssh -i ${hostDeployKeyPath(userId)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null`
+  return `ssh -i ${shellQuote(hostDeployKeyPath(userId))} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null`
 }
 
 async function swapPersonalDir(
