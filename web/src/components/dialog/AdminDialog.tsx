@@ -372,6 +372,7 @@ export function WorkspacePanel() {
   const renameProvider = (oldName: string) => {
     const newName = provRenameValue.trim()
     if (!newName || newName === oldName || newName === "default") { setEditingProvName(null); return }
+    const warnReEnterKey = !!(draft?.providers[oldName]?.hasKey && !draft.providers[oldName].keyDirty && !draft.providers[newName])
     setDraft((d) => {
       if (!d || !d.providers[oldName]) return d
       if (d.providers[newName]) return d
@@ -382,8 +383,11 @@ export function WorkspacePanel() {
       } else if (d.default.startsWith(`${oldName}/`)) {
         newDefault = newName + d.default.slice(oldName.length)
       }
-      return { ...d, default: newDefault, providers: { ...rest, [newName]: prov } }
+      return { ...d, default: newDefault, providers: { ...rest, [newName]: { ...prov, hasKey: false } } }
     })
+    if (warnReEnterKey) {
+      setErr(`Renamed "${oldName}" to "${newName}". Re-enter and test the workspace API key before saving; the stored key reference cannot be preserved through this rename.`)
+    }
     setEditingProvName(null)
   }
 

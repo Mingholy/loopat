@@ -108,6 +108,20 @@ export type ProviderConfig = {
   enabled: boolean
 }
 
+export type ProviderInfo = {
+  models: ModelEntry[]
+  baseUrl: string
+  source: "personal" | "workspace"
+  enabled: boolean
+  hasKey: boolean
+  missingVar?: string
+}
+
+export type ProvidersResponse = {
+  providers: Record<string, ProviderInfo>
+  default: string
+}
+
 export type RemoteSpec = {
   /** clone URL; empty string or omitted = local-only, don't clone */
   git?: string
@@ -645,6 +659,55 @@ export function describeApiKeyRef(
   return { kind: "mixed", exists: false }
 }
 
+export async function getProvidersResponse(user: string): Promise<ProvidersResponse> {
+  const wCfg = await loadConfig()
+  const providers: Record<string, ProviderInfo> = {}
+  if (wCfg.providers) {
+    for (const [name, p] of Object.entries(wCfg.providers)) {
+      const hasKey = typeof p.apiKey === "string" && p.apiKey.length > 0
+      providers[name] = {
+        models: p.models,
+        baseUrl: p.baseUrl,
+        source: "workspace",
+        enabled: hasKey ? p.enabled : false,
+        hasKey,
+      }
+    }
+  }
+
+  let active = wCfg.default ?? ""
+  try {
+    const pCfg = await loadPersonalConfig(user)
+    const rawDisk = await readPersonalDiskRaw(user).catch(() => null)
+    for (const [name, p] of Object.entries(pCfg.providers)) {
+      const hasKey = typeof p.apiKey === "string" && p.apiKey.length > 0
+      if (hasKey) {
+        providers[name] = {
+          models: p.models,
+          baseUrl: p.baseUrl,
+          source: "personal",
+          enabled: p.enabled !== false,
+          hasKey,
+        }
+      } else if (!providers[name]) {
+        const rawApiKey = (rawDisk?.providers as any)?.[name]?.apiKey
+        const ref = describeApiKeyRef(rawApiKey, user)
+        providers[name] = {
+          models: p.models,
+          baseUrl: p.baseUrl,
+          source: "personal",
+          enabled: false,
+          hasKey: false,
+          ...(ref.kind === "var" && ref.varName && !ref.exists ? { missingVar: ref.varName } : {}),
+        }
+      }
+    }
+    active = pCfg.default || Object.keys(pCfg.providers)[0] || active
+  } catch {}
+
+  return { providers, default: active }
+}
+
 /**
  * Apply a structural patch to personal/<user>/.loopat/config.json. Accepts
  * partial fields from `PersonalConfigDisk`; only fields present on the
@@ -844,20 +907,22 @@ export async function saveWorkspaceConfig(cfg: Partial<WorkspaceConfig>): Promis
   const existing = await loadConfig()
   const merged: WorkspaceConfig = { ...existing }
   if (cfg.providers !== undefined) {
-    merged.providers = merged.providers ?? {}
+    const existingProviders = existing.providers ?? {}
+    const nextProviders: Record<string, ProviderConfig> = {}
     for (const [name, p] of Object.entries(cfg.providers)) {
-      const existingProv = merged.providers[name]
+      const existingProv = existingProviders[name]
       const incoming = p as any
       const models: ModelEntry[] = incoming.models?.length > 0
         ? incoming.models.map((m: any) => normalizeModelEntry(m as ModelEntryDisk))
         : existingProv?.models ?? []
-      merged.providers[name] = {
+      nextProviders[name] = {
         models,
         baseUrl: incoming.baseUrl ?? existingProv?.baseUrl ?? "",
         apiKey: incoming.apiKey || existingProv?.apiKey || "",
         enabled: incoming.enabled !== undefined ? incoming.enabled : (existingProv?.enabled ?? true),
       } as any
     }
+    merged.providers = nextProviders
   }
   if (cfg.default !== undefined) merged.default = cfg.default
   if (cfg.knowledge !== undefined) merged.knowledge = cfg.knowledge
