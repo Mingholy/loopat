@@ -5,7 +5,7 @@ import { createBunWebSocket } from "hono/bun"
 import { existsSync } from "node:fs"
 import { execFile, execFileSync, spawn } from "node:child_process"
 import { promisify } from "node:util"
-import { listLoops, createLoop, getLoop, loopExists, patchLoopMeta, backfillAllMounts, ensureWorkspaceDirs, provisionUserPersonal, importPersonalFromRepo, setupPersonalViaProvider, listPersonalReposViaProvider, authenticateViaProvider, isPersonalFresh, ensureUiNotesWorktree, syncUiNotes, ffUpdateUiNotes, discardUiNotes, notesBehind, inspectPersonalDirty, syncPersonalToRemote, deletePersonalVault, pullPersonalFromRemote, pushPersonalToRemote, ensureContextMounts, effectiveDriver, isDriver, distillLoop, inspectRepoSync, pullRepoFromRemote, pushRepoToRemote, listVaultPublicKeys, userOnboarding, submitOnboarding, dismissOnboarding, deviceFlowStart, deviceFlowPoll } from "./loops"
+import { listLoops, createLoop, getLoop, loopExists, patchLoopMeta, backfillAllMounts, ensureWorkspaceDirs, provisionUserPersonal, importPersonalFromRepo, setupPersonalViaProvider, listPersonalReposViaProvider, authenticateViaProvider, isPersonalFresh, ensureUiNotesWorktree, syncUiNotes, ffUpdateUiNotes, discardUiNotes, notesBehind, inspectPersonalDirty, syncPersonalToRemote, deletePersonalVault, pullPersonalFromRemote, pushPersonalToRemote, continueMergePersonal, forcePushPersonalToRemote, resetPersonalToRemote, ensureContextMounts, effectiveDriver, isDriver, distillLoop, inspectRepoSync, pullRepoFromRemote, pushRepoToRemote, listVaultPublicKeys, userOnboarding, submitOnboarding, dismissOnboarding, deviceFlowStart, deviceFlowPoll } from "./loops"
 import { getEphemeralHostPort, probePodman, stopAllWorkspaceContainers, ensureServeContainer, ensurePortProxyContainer, ensureSandboxImage, buildPodmanExecArgs, ensureContainer, containerName, V_LOOP_WORKDIR } from "./podman"
 import { startMcpAuth, completeMcpAuth, probeOAuthSupport, evictOAuthProbe, parseBearerEnvName, mcpRequiredEnvs, parseTemplateVars, type OAuthSupport } from "./mcp-oauth"
 import { DEFAULT_VAULT, loadVaultEnvs } from "./vaults"
@@ -1325,6 +1325,30 @@ app.post("/api/personal/push", requireAuth, async (c) => {
     if (r.needsPull) status.needsPull = true
     return c.json(status, (r.conflict || r.needsPull) ? 409 : 400)
   }
+  return c.json({ ok: true, message: r.message })
+})
+
+// Continue a manually resolved personal repo merge, then push the merge commit.
+app.post("/api/personal/merge-continue", requireAuth, async (c) => {
+  const userId = c.get("userId") as string
+  const r = await continueMergePersonal(userId)
+  if (!r.ok) return c.json({ error: r.error }, 400)
+  return c.json({ ok: true, message: r.message })
+})
+
+// Destructive recovery: overwrite remote personal repo with local HEAD.
+app.post("/api/personal/push-force", requireAuth, async (c) => {
+  const userId = c.get("userId") as string
+  const r = await forcePushPersonalToRemote(userId)
+  if (!r.ok) return c.json({ error: r.error }, 400)
+  return c.json({ ok: true, message: r.message })
+})
+
+// Destructive recovery: reset local personal repo to origin/<branch>.
+app.post("/api/personal/reset", requireAuth, async (c) => {
+  const userId = c.get("userId") as string
+  const r = await resetPersonalToRemote(userId)
+  if (!r.ok) return c.json({ error: r.error }, 400)
   return c.json({ ok: true, message: r.message })
 })
 
