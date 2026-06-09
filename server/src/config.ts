@@ -702,7 +702,12 @@ export async function getProvidersResponse(user: string): Promise<ProvidersRespo
         }
       }
     }
-    active = pCfg.default || Object.keys(pCfg.providers)[0] || active
+    active = pCfg.default ||
+      Object.keys(pCfg.providers).find(n => {
+        const p = pCfg.providers[n]
+        return typeof p.apiKey === "string" && p.apiKey.length > 0
+      }) ||
+      active
   } catch {}
 
   return { providers, default: active }
