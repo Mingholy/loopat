@@ -1676,41 +1676,14 @@ export async function forcePushPersonalToRemote(
 /**
  * Explicit destructive recovery: discard local commits, uncommitted changes,
  * untracked files, and merge/rebase state by matching origin/<branch>.
+ * Delegates to pullPersonalFromRemote with force:true.
  */
 export async function resetPersonalToRemote(
   userId: string,
 ): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
-  const dir = personalDir(userId)
-  if (!existsSyncBase(join(dir, ".git"))) {
-    return { ok: false, error: "personal/ is not a git repo" }
-  }
-
-  let branch = "main"
-  try {
-    const { stdout } = await execFileP("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"])
-    if (stdout.trim()) branch = stdout.trim()
-  } catch {}
-  try {
-    await execFileP("git", ["-C", dir, "remote", "get-url", "origin"])
-  } catch {
-    return { ok: false, error: "no remote configured" }
-  }
-
-  const silent = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" }
-  try {
-    try { await execFileP("git", ["-C", dir, "rebase", "--abort"], { env: silent }) } catch {}
-    try { await execFileP("git", ["-C", dir, "merge", "--abort"], { env: silent }) } catch {}
-    await execFileP("git", ["-C", dir, "fetch", "origin"], {
-      env: { ...silent, GIT_SSH_COMMAND: personalSshCommand(userId) },
-      timeout: 30_000,
-    })
-    await execFileP("git", ["-C", dir, "reset", "--hard", `origin/${branch}`], { env: silent })
-    await execFileP("git", ["-C", dir, "clean", "-fd"], { env: silent })
-  } catch (e: any) {
-    const stderr = (e?.stderr ?? "").toString().trim()
-    return { ok: false, error: `reset failed: ${stderr || e?.message || e}` }
-  }
-  return { ok: true, message: `reset to origin/${branch}` }
+  const r = await pullPersonalFromRemote(userId, { force: true })
+  if (!r.ok) return { ok: false, error: r.error.replace(/^force pull failed:/, "reset failed:") }
+  return r
 }
 
 /**
