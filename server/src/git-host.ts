@@ -77,7 +77,44 @@ export type OnboardingView =
             /** External help links (e.g. where to register the key). */
             help?: { label: string; url: string }[]
           }
+        | {
+            /**
+             * Embed: the provider supplies an HTML string; loopat renders it as
+             * a same-origin srcdoc iframe. The iframe inherits the parent window's
+             * origin so relative /api fetch calls carry the session cookie
+             * (SameSite=Lax). The iframe MUST NOT have a sandbox attribute so
+             * cookies and scripts work.
+             */
+            kind: "embed"
+            html: string
+            title?: string
+          }
     }
+
+/**
+ * External auth (SSO) declaration. A provider sets this to delegate login
+ * to an external identity provider. loopat provides the generic callback
+ * routing; it has zero knowledge of the provider's protocol details.
+ *
+ * Security contract: `verify()` MUST validate token freshness and prevent
+ * replay attacks — loopat trusts its result unconditionally.
+ */
+export type ExternalAuth = {
+  /** Identifier stored in users.json as `oauthProvider`. Must be stable. */
+  id: string
+  /** Text for the SSO login button (shown in AuthPage). No hardcoded names in core. */
+  label: string
+  /** URL path that the external IdP will redirect to after login. Must be unique. */
+  callbackPath: string
+  /** Query parameter name in the callback URL that carries the auth token. */
+  tokenParam: string
+  /** Build the URL to redirect the user to for authentication.
+   *  `backUrl` = the full callback URL (origin + callbackPath). */
+  buildLoginUrl(backUrl: string): string
+  /** Verify the token received in the callback. Returns the user's stable
+   *  external identity. Throw to signal invalid/expired tokens. */
+  verify(token: string): Promise<{ oauthId: string; username: string; email?: string }>
+}
 
 export interface GitHostProvider {
   readonly id: string
@@ -87,6 +124,13 @@ export interface GitHostProvider {
    *  step. A URL or short hint. Platform-specific, so the provider supplies it
    *  (core stays platform-agnostic). */
   readonly tokenHelp?: string
+
+  /**
+   * Optional external auth (SSO) configuration. When present, loopat exposes
+   * generic delegation routes (/api/auth/external/*) and a login button in
+   * AuthPage. loopat never knows the provider's name — label comes from here.
+   */
+  readonly externalAuth?: ExternalAuth
 
   /** Optional defaults the provider declares so loopat needs no config.json:
    *  the git host base URL and the default personal-repo name. A request may
@@ -186,12 +230,16 @@ export interface GitHostProvider {
    *   ctx.vaultDir — `${repoDir}/.loopat/vaults/default` (encrypted)
    *   ctx.userId   — the loopat user being set up
    *   ctx.login    — their login on this platform
+   *   ctx.token    — the provisioning token used for /api/personal/github (A5).
+   *                  Passed through so the provider can do host-side registration
+   *                  (e.g. register an ssh public key). loopat does NOT interpret it.
    */
   seedDefaults?(ctx: {
     repoDir: string
     vaultDir: string
     userId: string
     login: string
+    token?: string
   }): Promise<void>
 }
 
@@ -205,4 +253,16 @@ export function getProvider(id: string): GitHostProvider | undefined {
 }
 export function listProviders(): { id: string; label: string }[] {
   return [...providers.values()].map((p) => ({ id: p.id, label: p.label }))
+}
+
+/**
+ * Return the ExternalAuth config declared by the first registered provider
+ * that has one. Returns null when no active provider declares externalAuth —
+ * in that case external-auth routes stay disabled (401 / 404).
+ */
+export function getExternalAuth(): ExternalAuth | null {
+  for (const p of providers.values()) {
+    if (p.externalAuth) return p.externalAuth
+  }
+  return null
 }

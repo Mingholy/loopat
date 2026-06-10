@@ -44,6 +44,14 @@ export type User = {
   personalRepo?: string
   createdAt: string
   activatedAt?: string
+  /**
+   * External OAuth provider id (from ExternalAuth.id). Set only for accounts
+   * created via the external-auth callback — these accounts have empty
+   * salt/hash and authenticate exclusively via SSO.
+   */
+  oauthProvider?: string
+  /** Stable external user id returned by ExternalAuth.verify(). */
+  oauthId?: string
 }
 
 export type PublicUser = {
@@ -202,6 +210,53 @@ export async function deleteUser(id: string): Promise<boolean> {
   }
   await saveSessions()
   return true
+}
+
+/**
+ * Find a user by their external OAuth identity (provider + oauthId pair).
+ * Returns null if no such user exists.
+ */
+export async function findUserByOAuth(provider: string, oauthId: string): Promise<User | null> {
+  const f = await readUsersFile()
+  return f.users.find((u) => u.oauthProvider === provider && u.oauthId === oauthId) ?? null
+}
+
+/**
+ * Create an account linked to an external OAuth identity.
+ *
+ * Security model: empty salt/hash means password login is intentionally
+ * impossible for this account. Authentication is entirely delegated to the
+ * external provider's `verify()` function, which MUST validate token freshness
+ * and prevent replay attacks. loopat trusts the oauthId returned by verify()
+ * unconditionally.
+ *
+ * The account starts as role:"member", status:"active" — activation is not
+ * required because the external IdP has already authenticated the user.
+ */
+export async function createOAuthUser(input: {
+  id: string
+  oauthProvider: string
+  oauthId: string
+  email?: string
+}): Promise<User> {
+  if (!isValidUsername(input.id)) throw new Error("invalid username (lowercase a-z0-9_- , 1-32 chars, leading alnum)")
+  const f = await readUsersFile()
+  if (f.users.some((u) => u.id === input.id)) throw new Error("username taken")
+  const now = new Date().toISOString()
+  const isFirst = f.users.length === 0
+  const user: User = {
+    id: input.id,
+    salt: "",
+    hash: "",
+    role: isFirst ? "admin" : "member",
+    status: "active",
+    oauthProvider: input.oauthProvider,
+    oauthId: input.oauthId,
+    createdAt: now,
+    activatedAt: now,
+  }
+  await writeUsersFile({ users: [...f.users, user] })
+  return user
 }
 
 /**

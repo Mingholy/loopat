@@ -679,6 +679,10 @@ export async function setupPersonalViaProvider(opts: {
           vaultDir: join(repoDir, ".loopat", "vaults", "default"),
           userId: opts.userId,
           login,
+          // A5: pass the provisioning token so the provider can do host-side
+          // registration (e.g. register an ssh public key). loopat does not
+          // interpret the token — it just threads it through.
+          token: opts.token,
         })
     : undefined
   const imp = await importPersonalFromRepo(opts.userId, cloneUrl, opts.cryptKey, { name: login, email }, seed)

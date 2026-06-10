@@ -413,6 +413,24 @@ function Shell({ ws }: { ws: WorkspaceState }) {
           if (ob.show.kind === "device") {
             return <OnboardingDevice show={ob.show} onAdvance={setOnboarding} />
           }
+          // Provider wants an embedded HTML page. Rendered as a same-origin
+          // srcdoc iframe WITHOUT a sandbox attribute so that the iframe
+          // inherits the parent window's origin — this is required for
+          // session cookies (SameSite=Lax) to be sent on relative /api fetches.
+          // The provider's HTML must use relative paths (e.g. fetch('/api/…'))
+          // and call POST /api/onboarding/done + window.top.location.reload()
+          // when finished (see CONTRACT §C4).
+          if (ob.show.kind === "embed") {
+            return (
+              <iframe
+                srcDoc={ob.show.html}
+                title={ob.show.title}
+                className="w-full h-full border-0"
+                // No sandbox attribute: iframe must be same-origin so that
+                // session cookies are sent on relative /api fetch calls.
+              />
+            )
+          }
           // Provider wants a form → render it; on submit we get the next view.
           return <OnboardingForm form={ob.show} onAdvance={setOnboarding} />
         })()}

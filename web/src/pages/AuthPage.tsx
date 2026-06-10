@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from "react"
+import { useState, useEffect, type FormEvent } from "react"
 import { useWorkspace } from "../ctx"
+import { getExternalAuthStatus, type ExternalAuthStatus } from "../api"
 
 type Mode = "login" | "register"
 
@@ -17,6 +18,12 @@ export function AuthPage({ onClose }: { onClose?: () => void } = {}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingNotice, setPendingNotice] = useState<string | null>(null)
+  const [extAuth, setExtAuth] = useState<ExternalAuthStatus | null>(null)
+
+  useEffect(() => {
+    // Probe for an external auth provider once on mount. No auth required.
+    getExternalAuthStatus().then(setExtAuth).catch(() => {})
+  }, [])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -144,6 +151,25 @@ export function AuthPage({ onClose }: { onClose?: () => void } = {}) {
           >
             {busy ? (mode === "login" ? "logging in…" : "registering…") : mode === "login" ? "Login" : "Register"}
           </button>
+          {/* External SSO button — shown only when an extension provider
+              declares externalAuth. Label comes from the API (no hardcoded
+              provider names in core). Clicking navigates to /api/auth/external/start
+              which builds the IdP redirect URL server-side. */}
+          {extAuth?.enabled && (
+            <>
+              <div className="flex items-center gap-2 my-1">
+                <div className="flex-1 h-px bg-gray-200" />
+                <span className="text-xs text-gray-400">or</span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+              <a
+                href={extAuth.startUrl}
+                className="block px-3 h-9 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center justify-center no-underline"
+              >
+                {extAuth.label}
+              </a>
+            </>
+          )}
         </form>
       </div>
     </div>
