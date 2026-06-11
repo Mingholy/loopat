@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react"
 import {
+  continueMergePersonal,
   deletePersonalVault,
   exportPersonalCryptKey,
+  forcePushPersonalVault,
   getPersonalStatus,
   importPersonal,
   setupPersonalGithub,
   listPersonalRepos,
   pullPersonalVault,
   pushPersonalVault,
+  resetPersonalVault,
   type PersonalStatus,
 } from "@/api"
 import { ArrowUp, ArrowDown, AlertTriangle, Check, X } from "lucide-react"
@@ -748,8 +751,8 @@ export function PersonalRepoPanel({ onDone, initialToken }: { onDone?: () => voi
 function ImportedPanel({ status }: { status: PersonalStatus }) {
   type Action = null | "export" | "delete" | "pull" | "push" | "showkey"
   const [action, setAction] = useState<Action>(null)
-  const [pullResult, setPullResult] = useState<{ ok: boolean; error?: string; conflict?: boolean; files?: string[]; needsStash?: boolean } | null>(null)
-  const [pushResult, setPushResult] = useState<{ ok: boolean; error?: string; conflict?: boolean; files?: string[]; needsPull?: boolean } | null>(null)
+  const [pullResult, setPullResult] = useState<{ ok: boolean; error?: string; conflict?: boolean; files?: string[]; needsStash?: boolean; message?: string } | null>(null)
+  const [pushResult, setPushResult] = useState<{ ok: boolean; error?: string; conflict?: boolean; files?: string[]; needsPull?: boolean; message?: string } | null>(null)
 
   const handlePull = async () => {
     setAction("pull")
@@ -763,6 +766,37 @@ function ImportedPanel({ status }: { status: PersonalStatus }) {
     setPushResult(null)
     const r = await pushPersonalVault()
     setPushResult(r)
+  }
+
+  const handleContinueMerge = async () => {
+    const r = await continueMergePersonal()
+    const payload = r.ok
+      ? { ok: true as const, message: r.message }
+      : { ok: false as const, error: r.error ?? "continue merge failed" }
+    if (action === "push") setPushResult(payload)
+    else {
+      setAction("pull")
+      setPullResult(payload)
+    }
+  }
+
+  const handleForcePush = async () => {
+    setAction("push")
+    setPushResult(null)
+    const r = await forcePushPersonalVault()
+    setPushResult(r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error })
+  }
+
+  const handleResetToRemote = async () => {
+    const r = await resetPersonalVault()
+    const payload = r.ok
+      ? { ok: true as const, message: r.message }
+      : { ok: false as const, error: r.error ?? "reset failed" }
+    if (action === "push") setPushResult(payload)
+    else {
+      setAction("pull")
+      setPullResult(payload)
+    }
   }
 
   return (
@@ -788,6 +822,9 @@ function ImportedPanel({ status }: { status: PersonalStatus }) {
           result={pullResult}
           onDone={() => setAction(null)}
           onRetry={handlePull}
+          onContinueMerge={handleContinueMerge}
+          onForcePush={handleForcePush}
+          onResetToRemote={handleResetToRemote}
         />
       ) : action === "push" ? (
         <PullPushResultFlow
@@ -795,6 +832,9 @@ function ImportedPanel({ status }: { status: PersonalStatus }) {
           result={pushResult}
           onDone={() => setAction(null)}
           onRetry={handlePush}
+          onContinueMerge={handleContinueMerge}
+          onForcePush={handleForcePush}
+          onResetToRemote={handleResetToRemote}
         />
       ) : action === "showkey" ? (
         <ShowPublicKeyFlow vaultKeys={status.vaultKeys ?? []} onDone={() => setAction(null)} />
@@ -848,78 +888,26 @@ function ImportedPanel({ status }: { status: PersonalStatus }) {
   )
 }
 
-function ForcePullButton({ onRetry }: { onRetry: () => void }) {
-  const [confirming, setConfirming] = useState(false)
-  const [forcePulling, setForcePulling] = useState(false)
-
-  const handleForcePull = async () => {
-    setForcePulling(true)
-    const r = await pullPersonalVault({ force: true })
-    setForcePulling(false)
-    setConfirming(false)
-    // Replace the parent's result with the force pull result
-    if (r.ok) {
-      onRetry() // Let parent refresh — the successful pull result will show
-    }
-  }
-
-  if (forcePulling) {
-    return (
-      <button disabled className="flex-1 px-3 h-8 text-sm rounded bg-red-700 text-white opacity-50">
-        Force pulling…
-      </button>
-    )
-  }
-
-  if (confirming) {
-    return (
-      <div className="flex gap-2">
-        <button
-          onClick={handleForcePull}
-          className="flex-1 px-3 h-8 text-sm rounded bg-red-700 text-white hover:bg-red-800"
-        >
-          Confirm — discard all local changes
-        </button>
-        <button
-          onClick={() => setConfirming(false)}
-          className="px-3 h-8 text-sm rounded border border-gray-200 text-gray-600 hover:bg-gray-100"
-        >
-          Cancel
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex gap-2">
-      <button
-        onClick={() => setConfirming(true)}
-        className="flex-1 px-3 h-8 text-sm rounded bg-amber-600 text-white hover:bg-amber-700"
-      >
-        Discard changes & force pull
-      </button>
-      <button
-        onClick={onRetry}
-        className="px-3 h-8 text-sm rounded bg-red-700 text-white hover:bg-red-800"
-      >
-        Retry
-      </button>
-    </div>
-  )
-}
 
 function PullPushResultFlow({
   type,
   result,
   onDone,
   onRetry,
+  onContinueMerge,
+  onForcePush,
+  onResetToRemote,
 }: {
   type: "pull" | "push"
-  result: { ok: boolean; error?: string; conflict?: boolean; files?: string[]; needsStash?: boolean; needsPull?: boolean } | null
+  result: { ok: boolean; error?: string; conflict?: boolean; files?: string[]; needsStash?: boolean; needsPull?: boolean; message?: string } | null
   onDone: () => void
   onRetry: () => void
+  onContinueMerge?: () => void
+  onForcePush?: () => void
+  onResetToRemote?: () => void
 }) {
   const [showConflicts, setShowConflicts] = useState(false)
+  const [armed, setArmed] = useState<null | "forcePush" | "reset">(null)
 
   if (!result) {
     return (
@@ -1001,11 +989,8 @@ function PullPushResultFlow({
         </div>
       )}
 
-      <div className="flex gap-2 mt-1">
-        {hasConflict ? (
-          // "take remote" — force pull discards the local edit and re-aligns to origin
-          <ForcePullButton onRetry={onRetry} />
-        ) : (
+      <div className="flex flex-col gap-1.5 mt-1">
+        <div className="flex gap-2">
           <button
             type="button"
             onClick={onRetry}
@@ -1013,14 +998,75 @@ function PullPushResultFlow({
           >
             Retry
           </button>
+          <button
+            type="button"
+            onClick={onDone}
+            className="px-3 h-8 text-sm rounded border border-red-300 text-red-700 bg-white hover:bg-red-50"
+          >
+            Close
+          </button>
+        </div>
+
+        {(hasConflict || needsPull || result.needsStash) && (
+          <div className="grid grid-cols-1 gap-1.5 pt-1.5 border-t border-red-200/60">
+            {onContinueMerge && hasConflict && (
+              <button
+                type="button"
+                onClick={onContinueMerge}
+                className="px-2.5 h-7 text-[11px] rounded border border-red-300 text-red-700 bg-white hover:bg-red-50"
+              >
+                Continue resolved merge
+              </button>
+            )}
+            {onForcePush && (
+              armed === "forcePush" ? (
+                <button
+                  type="button"
+                  onClick={() => { setArmed(null); onForcePush() }}
+                  className="px-2.5 h-7 text-[11px] rounded bg-red-700 text-white hover:bg-red-800"
+                >
+                  Confirm — overwrite remote
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setArmed("forcePush")}
+                  className="px-2.5 h-7 text-[11px] rounded border border-red-300 text-red-700 bg-white hover:bg-red-50"
+                >
+                  Force push local
+                </button>
+              )
+            )}
+            {onResetToRemote && (
+              armed === "reset" ? (
+                <button
+                  type="button"
+                  onClick={() => { setArmed(null); onResetToRemote() }}
+                  className="px-2.5 h-7 text-[11px] rounded bg-red-700 text-white hover:bg-red-800"
+                >
+                  Confirm — discard local
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setArmed("reset")}
+                  className="px-2.5 h-7 text-[11px] rounded border border-red-300 text-red-700 bg-white hover:bg-red-50"
+                >
+                  Reset to remote
+                </button>
+              )
+            )}
+            {armed && (
+              <button
+                type="button"
+                onClick={() => setArmed(null)}
+                className="px-2.5 h-7 text-[11px] rounded border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         )}
-        <button
-          type="button"
-          onClick={onDone}
-          className="px-3 h-8 text-sm rounded border border-red-300 text-red-700 bg-white hover:bg-red-50"
-        >
-          Close
-        </button>
       </div>
     </div>
   )

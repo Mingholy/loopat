@@ -19,6 +19,8 @@ import {
   refreshNotes,
   pullPersonalVault,
   pushPersonalVault,
+  forcePushPersonalVault,
+  resetPersonalVault,
   vaultCreateFile,
   vaultCreateFolder,
   vaultDeleteFile,
@@ -725,6 +727,13 @@ function DocView({
   // Server flags secret files; the response never carries plaintext, so
   // `original` stays empty and the only way to mutate is to type a new value.
   const [secretFromServer, setSecretFromServer] = useState(false)
+  const [personalRecovery, setPersonalRecovery] = useState<null | {
+    files: string[]
+    error?: string
+    message?: string
+    busy?: "force" | "reset"
+    armed?: "force" | "reset"
+  }>(null)
   const isMobile = useIsMobile()
 
   const initialEditingRef = useRef(initialEditing)
@@ -739,6 +748,7 @@ function DocView({
     setLastCommit(null)
     setFullscreen(false)
     setSecretFromServer(false)
+    setPersonalRecovery(null)
     vaultRead(vault, path).then((r) => {
       const c = r?.content ?? ""
       setOriginal(c)
@@ -796,10 +806,12 @@ function DocView({
           const sync = await pushPersonalVault()
           if (!sync.ok) {
             if (sync.conflict) {
-              alert(`Saved locally, but it conflicts with the remote (${(sync.files ?? []).join(", ")}). Your edit is kept — pull first (re-open Personal) or resolve in a loop.`)
+              setPersonalRecovery({ files: sync.files ?? [], error: sync.error })
             } else {
               alert(`Saved locally, but push to remote failed: ${sync.error ?? "unknown"}`)
             }
+          } else {
+            setPersonalRecovery(null)
           }
         }
       } else {
@@ -809,6 +821,39 @@ function DocView({
       setSaving(false)
     }
   }, [vault, path, draft, dirty, saving, onSaved, isSecret])
+
+  const reloadCurrentFile = useCallback(async () => {
+    const r = await vaultRead(vault, path)
+    const c = r?.content ?? ""
+    setOriginal(c)
+    setDraft(c)
+    setSecretFromServer(!!r?.secret)
+    onSaved()
+  }, [vault, path, onSaved])
+
+  const recoverPersonalForcePush = async () => {
+    if (!personalRecovery || personalRecovery.busy) return
+    setPersonalRecovery({ ...personalRecovery, busy: "force", armed: undefined })
+    const r = await forcePushPersonalVault()
+    setPersonalRecovery((prev) => {
+      if (!prev) return prev
+      return r.ok
+        ? { files: prev.files, message: r.message ?? "local vault pushed to remote" }
+        : { ...prev, busy: undefined, error: r.error ?? "force push failed" }
+    })
+  }
+
+  const recoverPersonalReset = async () => {
+    if (!personalRecovery || personalRecovery.busy) return
+    setPersonalRecovery({ ...personalRecovery, busy: "reset", armed: undefined })
+    const r = await resetPersonalVault()
+    if (r.ok) {
+      await reloadCurrentFile()
+      setPersonalRecovery({ files: [], message: r.message ?? "local vault reset to remote" })
+    } else {
+      setPersonalRecovery((prev) => prev ? { ...prev, busy: undefined, error: r.error ?? "reset failed" } : prev)
+    }
+  }
 
   const startEdit = () => { setEditing(true); if (isMd) setMilkdown(true) }
 
@@ -915,6 +960,83 @@ function DocView({
           )}
         </div>
       </header>
+
+      {vault === "personal" && personalRecovery && (
+        <div className="shrink-0 border-b border-red-200 bg-red-50 px-3 md:px-5 py-2 text-xs text-red-900">
+          {personalRecovery.message ? (
+            <div className="flex items-center justify-between gap-2">
+              <span>{personalRecovery.message}</span>
+              <button
+                type="button"
+                onClick={() => setPersonalRecovery(null)}
+                className="px-2 h-6 rounded border border-red-200 bg-white text-red-700 hover:bg-red-50"
+              >
+                dismiss
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="leading-relaxed">
+                Saved locally, but the remote has conflicting changes. Your edit is kept locally.
+                {personalRecovery.files.length > 0 && (
+                  <span className="font-mono"> Conflicts: {personalRecovery.files.join(", ")}</span>
+                )}
+              </div>
+              {personalRecovery.error && <div className="text-red-700">{personalRecovery.error}</div>}
+              <div className="flex flex-wrap gap-2">
+                {personalRecovery.armed === "force" ? (
+                  <button
+                    type="button"
+                    onClick={recoverPersonalForcePush}
+                    disabled={!!personalRecovery.busy}
+                    className="px-2.5 h-7 rounded bg-red-700 text-white hover:bg-red-800 disabled:opacity-50"
+                  >
+                    {personalRecovery.busy === "force" ? "pushing..." : "Confirm overwrite remote"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPersonalRecovery({ ...personalRecovery, armed: "force" })}
+                    disabled={!!personalRecovery.busy}
+                    className="px-2.5 h-7 rounded border border-red-300 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Force push local
+                  </button>
+                )}
+                {personalRecovery.armed === "reset" ? (
+                  <button
+                    type="button"
+                    onClick={recoverPersonalReset}
+                    disabled={!!personalRecovery.busy}
+                    className="px-2.5 h-7 rounded bg-red-700 text-white hover:bg-red-800 disabled:opacity-50"
+                  >
+                    {personalRecovery.busy === "reset" ? "resetting..." : "Confirm discard local"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPersonalRecovery({ ...personalRecovery, armed: "reset" })}
+                    disabled={!!personalRecovery.busy}
+                    className="px-2.5 h-7 rounded border border-red-300 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Reset to remote
+                  </button>
+                )}
+                {personalRecovery.armed && (
+                  <button
+                    type="button"
+                    onClick={() => setPersonalRecovery({ ...personalRecovery, armed: undefined })}
+                    disabled={!!personalRecovery.busy}
+                    className="px-2.5 h-7 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {editing ? (
         isSecret ? (

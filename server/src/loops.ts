@@ -1610,6 +1610,109 @@ export async function pushPersonalToRemote(
   return { ok: true, message: c.committed ? "committed and pushed" : "pushed" }
 }
 
+async function ensurePersonalCommitIdentity(dir: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    try { await execFileP("git", ["-C", dir, "config", "user.email"]) }
+    catch { await execFileP("git", ["-C", dir, "config", "user.email", "loopat@local"]) }
+    try { await execFileP("git", ["-C", dir, "config", "user.name"]) }
+    catch { await execFileP("git", ["-C", dir, "config", "user.name", "loopat"]) }
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: `git config failed: ${e?.stderr ?? e?.message ?? e}` }
+  }
+}
+
+/**
+ * Continue an in-progress personal repo merge after the user resolved files
+ * manually. Refuses to become a normal commit when no merge is active.
+ */
+export async function continueMergePersonal(
+  userId: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const dir = personalDir(userId)
+  if (!existsSyncBase(join(dir, ".git"))) {
+    return { ok: false, error: "personal/ is not a git repo" }
+  }
+  if (!existsSyncBase(join(dir, ".git/MERGE_HEAD"))) {
+    return { ok: false, error: "no merge in progress" }
+  }
+
+  const id = await ensurePersonalCommitIdentity(dir)
+  if (!id.ok) return id
+
+  try {
+    await execFileP("git", ["-C", dir, "add", "-A"])
+    await execFileP("git", ["-C", dir, "commit", "--no-edit"])
+  } catch (e: any) {
+    const stderr = (e?.stderr ?? "").toString().trim()
+    return { ok: false, error: `commit failed: ${stderr || e?.message || e}` }
+  }
+
+  let branch = "main"
+  try {
+    const { stdout } = await execFileP("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"])
+    if (stdout.trim()) branch = stdout.trim()
+  } catch {}
+
+  try {
+    await execFileP("git", ["-C", dir, "push", "origin", `HEAD:${branch}`], {
+      env: { ...process.env, GIT_SSH_COMMAND: personalSshCommand(userId) },
+    })
+  } catch (e: any) {
+    const stderr = (e?.stderr ?? "").toString().trim()
+    return { ok: false, error: `push failed: ${stderr || e?.message || e}` }
+  }
+  return { ok: true, message: "merge committed and pushed" }
+}
+
+/**
+ * Explicit destructive recovery: overwrite the remote personal repo with this
+ * local HEAD. Uses --force-with-lease so a newly advanced remote is still
+ * rejected instead of blindly overwritten.
+ */
+export async function forcePushPersonalToRemote(
+  userId: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const dir = personalDir(userId)
+  if (!existsSyncBase(join(dir, ".git"))) {
+    return { ok: false, error: "personal/ is not a git repo" }
+  }
+
+  let branch = "main"
+  try {
+    const { stdout } = await execFileP("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"])
+    if (stdout.trim()) branch = stdout.trim()
+  } catch {}
+  try {
+    await execFileP("git", ["-C", dir, "remote", "get-url", "origin"])
+  } catch {
+    return { ok: false, error: "no remote configured" }
+  }
+
+  try {
+    await execFileP("git", ["-C", dir, "push", "--force-with-lease", "origin", `HEAD:${branch}`], {
+      env: { ...process.env, GIT_SSH_COMMAND: personalSshCommand(userId) },
+    })
+  } catch (e: any) {
+    const stderr = (e?.stderr ?? "").toString().trim()
+    return { ok: false, error: `force push failed: ${stderr || e?.message || e}` }
+  }
+  return { ok: true, message: `force-pushed HEAD to origin/${branch}` }
+}
+
+/**
+ * Explicit destructive recovery: discard local commits, uncommitted changes,
+ * untracked files, and merge/rebase state by matching origin/<branch>.
+ * Delegates to pullPersonalFromRemote with force:true.
+ */
+export async function resetPersonalToRemote(
+  userId: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const r = await pullPersonalFromRemote(userId, { force: true })
+  if (!r.ok) return { ok: false, error: r.error.replace(/^force pull failed:/, "reset failed:") }
+  return r
+}
+
 /**
  * UI-loop notes worktree: a per-user checkout of notes, opened from origin/main,
  * for editing team notes outside any AI loop (the no-AI "UI loop"). Disposable —

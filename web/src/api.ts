@@ -349,6 +349,27 @@ export async function pushPersonalVault(): Promise<{
   return { ok: true, message: j.message }
 }
 
+export async function continueMergePersonal(): Promise<{ ok: boolean; error?: string; message?: string }> {
+  const r = await apiFetch("/api/personal/merge-continue", { method: "POST" })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) return { ok: false, error: j.error ?? `continue merge failed (${r.status})` }
+  return { ok: true, message: j.message }
+}
+
+export async function forcePushPersonalVault(): Promise<{ ok: boolean; error?: string; message?: string }> {
+  const r = await apiFetch("/api/personal/push-force", { method: "POST" })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) return { ok: false, error: j.error ?? `force push failed (${r.status})` }
+  return { ok: true, message: j.message }
+}
+
+export async function resetPersonalVault(): Promise<{ ok: boolean; error?: string; message?: string }> {
+  const r = await apiFetch("/api/personal/reset", { method: "POST" })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) return { ok: false, error: j.error ?? `reset failed (${r.status})` }
+  return { ok: true, message: j.message }
+}
+
 export async function importPersonal(
   repoUrl?: string,
   cryptKey?: string,
