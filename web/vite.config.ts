@@ -37,6 +37,12 @@ export default defineConfig({
         target: `ws://${process.env.HOST ?? "localhost"}:${process.env.PORT ?? 10001}`,
         ws: true,
       },
+      // External-auth callback paths are matched by the server's catch-all
+      // middleware (before the SPA fallback). They must be proxied in dev so
+      // Vite doesn't intercept them and serve index.html instead.
+      // The fixture provider uses "/fixture-sso-callback"; production
+      // extensions use their own callbackPath. Add any here for local dev.
+      "/fixture-sso-callback": { target: `http://${process.env.HOST ?? "localhost"}:${process.env.PORT ?? 10001}` },
     },
   },
 })

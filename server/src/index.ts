@@ -62,7 +62,7 @@ import { queryUserTokenUsage, queryWorkspaceTokenUsage, queryDailyTokenUsage, qu
 import { createApiToken, listApiTokens, revokeApiToken } from "./api-tokens"
 import { listBoards, createBoard, renameBoard, listKanbanColumns, addCard, toggleCard, deleteCard, moveCard, updateCardMeta, updateCardBlock, reorderCards, createColumn, deleteColumn, readKanbanConfig, saveColumnOrder, setColumnColor, renameColumn, assignDriverForCard, createLoopFromCard, linkLoopToCard, kanbanUserCtx } from "./kanban"
 import { printBootstrapBanner, printReadyLine } from "./bootstrap"
-import { resolveProvider } from "./providers"
+import { resolveProvider, loadExtensionProviders } from "./providers"
 import { ensureSandboxClaudeBinary } from "./claude-binary"
 import { serveHostExec, hostExecSocketPath } from "./host-exec"
 import {
@@ -83,7 +83,10 @@ import {
   activateUser,
   setUserRole,
   deleteUser,
+  findUserByOAuth,
+  createOAuthUser,
 } from "./auth"
+import { getExternalAuth } from "./git-host"
 import { getCookie } from "hono/cookie"
 
 const execFileP = promisify(execFile)
@@ -409,6 +412,43 @@ app.get("/api/auth/me", async (c) => {
   return c.json({ user: { id: user.id, role: user.role, status: user.status } })
 })
 
+// ── external auth (SSO delegation) ──
+// These routes are zero-knowledge: loopat knows nothing about the provider's
+// protocol. All SSO details (label, callbackPath, tokenParam, buildLoginUrl,
+// verify) come from the active extension provider's `externalAuth` declaration.
+
+/**
+ * GET /api/auth/external/status
+ * Returns whether an external auth provider is available and what label to
+ * show on the login button. No auth required — called from AuthPage before
+ * login.
+ */
+app.get("/api/auth/external/status", async (_c) => {
+  await loadExtensionProviders()
+  const ext = getExternalAuth()
+  if (!ext) return _c.json({ enabled: false })
+  const origin = publicBaseUrl(_c)
+  return _c.json({
+    enabled: true,
+    label: ext.label,
+    startUrl: `${origin}/api/auth/external/start`,
+  })
+})
+
+/**
+ * GET /api/auth/external/start
+ * Redirects the browser to the external IdP's login page.
+ * backUrl = origin + callbackPath so the IdP can redirect back.
+ */
+app.get("/api/auth/external/start", async (c) => {
+  await loadExtensionProviders()
+  const ext = getExternalAuth()
+  if (!ext) return c.json({ error: "no external auth provider configured" }, 404)
+  const origin = publicBaseUrl(c)
+  const backUrl = `${origin}${ext.callbackPath}`
+  return c.redirect(ext.buildLoginUrl(backUrl))
+})
+
 // ── admin (requireAdmin) ──
 
 app.get("/api/admin/users", requireAdmin, async (c) => {
@@ -723,6 +763,51 @@ app.post("/api/settings/personal/value", requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+// Write a file into the user's vault mounts directory.
+// Body: { path, contentBase64, vault? }
+// `path` is relative (no leading slash, no `..` segments) and is placed under
+// `vaults/<vault>/mounts/<path>`. Designed for onboarding flows (embed iframe)
+// that need to provision config files or SSH keys into the vault before loops
+// exist. Persists the same way as /value (commit + push).
+app.post("/api/settings/personal/mount", requireAuth, async (c) => {
+  const userId = c.get("userId") as string
+  const body = await c.req.json().catch(() => ({}))
+  const relPath = typeof body.path === "string" ? body.path : ""
+  const contentBase64 = typeof body.contentBase64 === "string" ? body.contentBase64 : ""
+  const vault = typeof body.vault === "string" && body.vault ? body.vault : "default"
+  if (!VAULT_RE.test(vault)) return c.json({ error: "invalid vault" }, 400)
+  if (!relPath) return c.json({ error: "path required" }, 400)
+  // Security: reject absolute paths and any path component that is ".." to
+  // prevent escape outside the vault mounts directory.
+  if (relPath.startsWith("/") || relPath.split("/").some((s: string) => s === "..")) {
+    return c.json({ error: "path must be relative and must not contain '..'" }, 400)
+  }
+  if (!contentBase64) return c.json({ error: "contentBase64 required" }, 400)
+  let content: Buffer
+  try {
+    content = Buffer.from(contentBase64, "base64")
+  } catch {
+    return c.json({ error: "contentBase64 is not valid base64" }, 400)
+  }
+  const { personalVaultDir } = await import("./paths")
+  const { mkdir: mkdirP, writeFile: wf } = await import("node:fs/promises")
+  const { join: pj } = await import("node:path")
+  const mountsBase = pj(personalVaultDir(userId, vault), "mounts")
+  const destPath = pj(mountsBase, relPath)
+  // Final guard: confirm resolved path is still inside mountsBase.
+  if (!destPath.startsWith(mountsBase + "/") && destPath !== mountsBase) {
+    return c.json({ error: "resolved path escapes vault mounts directory" }, 400)
+  }
+  try {
+    await mkdirP(pj(destPath, ".."), { recursive: true })
+    await wf(destPath, content)
+  } catch (e: any) {
+    return c.json({ error: `write failed: ${e?.message ?? e}` }, 500)
+  }
+  await persistPersonalAfterVaultWrite(userId)
+  return c.json({ ok: true })
+})
+
 // ── MCP OAuth (auth required) ──
 // loopat owns the OAuth dance entirely: discovery + DCR + auth code + PKCE
 // + token exchange happen server-side. The resulting access token is written
@@ -865,13 +950,19 @@ app.post("/api/mcp-auth/start", requireAuth, async (c) => {
   const userId = c.get("userId") as string
   const body = await c.req.json().catch(() => ({}))
   const serverName = typeof body.serverName === "string" ? body.serverName.trim() : ""
-  const loopId = typeof body.loopId === "string" ? body.loopId.trim() : ""
+  // loopId is now optional: callers in the onboarding stage (no loop yet) may
+  // omit it and pass serverConfig directly instead.
+  const loopId = typeof body.loopId === "string" ? body.loopId.trim() : undefined
+  // Optional caller-supplied server config (onboarding stage, no loop context).
+  const serverConfig = body.serverConfig && typeof body.serverConfig === "object" ? body.serverConfig : undefined
   if (!serverName || !SERVER_NAME_RE.test(serverName)) return c.json({ error: "invalid serverName" }, 400)
-  if (!loopId) return c.json({ error: "loopId required" }, 400)
+  // Require at least one resolution source.
+  if (!loopId && !serverConfig) return c.json({ error: "loopId or serverConfig required" }, 400)
   const r = await startMcpAuth({
     user: userId,
     serverName,
     loopId,
+    serverConfig,
     publicBaseUrl: publicBaseUrl(c),
   })
   if (!r.ok) return c.json({ error: r.error }, 400)
@@ -3225,6 +3316,69 @@ import { join } from "node:path"
 import { networkInterfaces } from "node:os"
 const webDist = join(import.meta.dir, "..", "..", "web", "dist")
 const indexHtml = join(webDist, "index.html")
+
+/**
+ * External-auth callback interceptor — MUST sit before the SPA catch-all.
+ *
+ * Matches requests whose path equals the active provider's callbackPath (e.g.
+ * "/fixture-sso-callback"). /api/* and /ws/* are never intercepted here.
+ *
+ * Flow:
+ *   1. Read the token from query[tokenParam].
+ *   2. Call ext.verify(token) — throws on invalid/expired.
+ *   3. findUserByOAuth → existing user, or createOAuthUser (auto-active).
+ *   4. Issue a session cookie and 302 → "/".
+ */
+app.get("*", async (c, next) => {
+  const path = c.req.path
+  // Always pass through API and WebSocket routes.
+  if (path.startsWith("/api/") || path.startsWith("/ws/")) return next()
+
+  // Check whether the active provider has registered a callbackPath.
+  await loadExtensionProviders()
+  const ext = getExternalAuth()
+  if (ext && path === ext.callbackPath) {
+    const token = c.req.query(ext.tokenParam) ?? ""
+    if (!token) return c.redirect(`/?sso_error=missing_token`)
+    let identity: { oauthId: string; username: string; email?: string }
+    try {
+      identity = await ext.verify(token)
+    } catch (e: any) {
+      console.warn(`[ext-auth] verify failed: ${e?.message ?? e}`)
+      return c.redirect(`/?sso_error=verify_failed`)
+    }
+    // Find or create the OAuth user.
+    let user = await findUserByOAuth(ext.id, identity.oauthId)
+    if (!user) {
+      // Derive a username from the identity. Collisions: append a short suffix.
+      let candidateId = (identity.username ?? identity.oauthId)
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "_")
+        .slice(0, 28)
+      if (!/^[a-z0-9]/.test(candidateId)) candidateId = "u_" + candidateId
+      // Ensure uniqueness — try up to 10 numeric suffixes.
+      let finalId = candidateId
+      for (let i = 1; ; i++) {
+        try {
+          user = await createOAuthUser({ id: finalId, oauthProvider: ext.id, oauthId: identity.oauthId, email: identity.email })
+          break
+        } catch (e: any) {
+          if (e?.message === "username taken" && i < 10) {
+            finalId = `${candidateId}${i}`
+          } else {
+            console.warn(`[ext-auth] createOAuthUser failed: ${e?.message ?? e}`)
+            return c.redirect(`/?sso_error=create_user_failed`)
+          }
+        }
+      }
+    }
+    const sessionToken = createSession(user.id)
+    setSessionCookie(c, sessionToken)
+    return c.redirect("/")
+  }
+
+  return next()
+})
 
 app.get("*", async (c, next) => {
   const path = c.req.path

@@ -189,7 +189,8 @@ export type OnboardingForm = {
   fields: OnboardingField[]
 }
 // The provider either reports done, or tells the UI what to show next: a form,
-// or an existing loopat page (route) to send the user to.
+// an existing loopat page (route), instructions (info), device-flow, or an
+// embed iframe (the provider supplies HTML rendered same-origin via srcdoc).
 export type OnboardingShow =
   | ({ kind: "form" } & OnboardingForm)
   | { kind: "route"; path: string; title?: string; description?: string }
@@ -201,6 +202,24 @@ export type OnboardingShow =
       help?: { label: string; url: string }[]
     }
   | { kind: "device"; title: string; description?: string }
+  | {
+      /** Provider-supplied HTML rendered as a same-origin srcdoc iframe.
+       *  iframe has no sandbox attribute so cookies + relative /api fetches work. */
+      kind: "embed"
+      html: string
+      title?: string
+    }
+
+/** External auth status returned by /api/auth/external/status. */
+export type ExternalAuthStatus =
+  | { enabled: false }
+  | { enabled: true; label: string; startUrl: string }
+
+export async function getExternalAuthStatus(): Promise<ExternalAuthStatus> {
+  const r = await apiFetch("/api/auth/external/status")
+  if (!r.ok) return { enabled: false }
+  return (await r.json()) as ExternalAuthStatus
+}
 export type OnboardingStatus =
   | { gated: boolean; done: true }
   | { gated: boolean; done: false; show: OnboardingShow }

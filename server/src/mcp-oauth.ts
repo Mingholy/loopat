@@ -402,24 +402,40 @@ async function lookupServerInMergedSettings(
 }
 
 /**
- * Begin an OAuth flow for (user, serverName) in the context of `loopId`. The
- * browser-side caller navigates to `authorizationUrl` next. The OAuth token,
- * once obtained, lands in the user's personal default vault under the env
- * name parsed from the server's `Authorization: Bearer ${VAR}` header.
+ * Begin an OAuth flow for (user, serverName). The browser-side caller
+ * navigates to `authorizationUrl` next. The OAuth token, once obtained, lands
+ * in the user's personal default vault under the env name parsed from the
+ * server's `Authorization: Bearer ${VAR}` header.
+ *
+ * `loopId` is optional: when called during the onboarding stage (before any
+ * loop exists), pass `serverConfig` directly instead. If both are supplied,
+ * `serverConfig` takes precedence. If neither provides a resolvable server,
+ * the call returns an error.
  */
 export async function startMcpAuth(opts: {
   user: string
   serverName: string
   /** Loop the auth request originates from — used to resolve the server in
-   *  the loop's merged settings.json. */
-  loopId: string
+   *  the loop's merged settings.json. Optional when `serverConfig` is provided. */
+  loopId?: string
+  /** Caller-supplied server config (onboarding stage, no loop context yet).
+   *  Takes precedence over the loop's merged settings.json when provided. */
+  serverConfig?: McpServerConfig
   publicBaseUrl: string
 }): Promise<StartResult> {
-  const { user, serverName, loopId, publicBaseUrl } = opts
+  const { user, serverName, loopId, serverConfig, publicBaseUrl } = opts
 
-  const srv = await lookupServerInMergedSettings(loopId, serverName)
+  // Resolve the server config: caller-supplied wins, then loop merged settings.
+  let srv: McpServerConfig | null = serverConfig ?? null
+  if (!srv && loopId) {
+    srv = await lookupServerInMergedSettings(loopId, serverName)
+  }
   if (!srv) {
-    return { ok: false, error: `server "${serverName}" not found in loop's merged settings.json` }
+    // Preserve the loop-context message (a provided loopId whose merged
+    // settings lack the server); only fall back to the generic hint when no
+    // resolution source was usable at all (onboarding stage, no serverConfig).
+    if (loopId) return { ok: false, error: `server "${serverName}" not found in loop's merged settings.json` }
+    return { ok: false, error: `server "${serverName}" not found — provide loopId or serverConfig` }
   }
   if (srv.type !== "http" && srv.type !== "sse") {
     return { ok: false, error: `server "${serverName}" is type "${srv.type}"; only http/sse support OAuth` }
