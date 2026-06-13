@@ -57,7 +57,7 @@ import {
   personalReposDir,
   loopsDir,
 } from "./paths"
-import { loadConfig, loadPersonalConfig, savePersonalConfig, saveWorkspaceConfig, getActiveProvider, readPersonalDiskRaw, savePersonalDisk, describeApiKeyRef, writeVaultEnv, deleteVaultEnv, loadA2AConfig, saveA2AConfig, type ProviderConfig, type ModelEntry } from "./config"
+import { loadConfig, loadPersonalConfig, savePersonalConfig, saveWorkspaceConfig, getActiveProvider, readPersonalDiskRaw, savePersonalDisk, describeApiKeyRef, writeVaultEnv, deleteVaultEnv, getProvidersResponse, loadA2AConfig, saveA2AConfig, type ProviderConfig, type ModelEntry } from "./config"
 import { queryUserTokenUsage, queryWorkspaceTokenUsage, queryDailyTokenUsage, queryLoopTokenUsage } from "./usage"
 import { createApiToken, listApiTokens, revokeApiToken } from "./api-tokens"
 import { listBoards, createBoard, renameBoard, listKanbanColumns, addCard, toggleCard, deleteCard, moveCard, updateCardMeta, updateCardBlock, reorderCards, createColumn, deleteColumn, readKanbanConfig, saveColumnOrder, setColumnColor, renameColumn, assignDriverForCard, createLoopFromCard, linkLoopToCard, kanbanUserCtx } from "./kanban"
@@ -265,31 +265,11 @@ app.get("/api/serve/check-port", requireAuth, async (c) => {
 // ── providers (auth required) ──
 // Merges personal + workspace configs. Personal providers take precedence
 // (they carry per-user apiKeys via secrets/). Source field indicates origin.
+// Active default mirrors runtime resolution: a configured personal provider can
+// become active even when workspace has a default.
 app.get("/api/providers", requireAuth, async (c) => {
-  const wCfg = await loadConfig()
-  const providers: Record<string, { models: ModelEntry[]; baseUrl: string; source: "personal" | "workspace"; enabled: boolean; hasKey: boolean }> = {}
-  if (wCfg.providers) {
-    for (const [name, p] of Object.entries(wCfg.providers)) {
-      const hasKey = typeof p.apiKey === "string" && p.apiKey.length > 0
-      providers[name] = { models: p.models, baseUrl: p.baseUrl, source: "workspace", enabled: hasKey ? p.enabled : false, hasKey }
-    }
-  }
-  // Overlay personal providers (they take precedence)
-  let active = wCfg.default ?? ""
   const userId = c.get("userId") as string
-  try {
-    const pCfg = await loadPersonalConfig(userId)
-    for (const [name, p] of Object.entries(pCfg.providers)) {
-      const hasKey = typeof p.apiKey === "string" && p.apiKey.length > 0
-      // Only overlay if the user actually configured this provider (has a key).
-      // Template/preset providers without a key should not shadow workspace config.
-      if (hasKey) {
-        providers[name] = { models: p.models, baseUrl: p.baseUrl, source: "personal", enabled: p.enabled !== false, hasKey }
-      }
-    }
-    active = pCfg.default || active
-  } catch {}
-  return c.json({ providers, default: active })
+  return c.json(await getProvidersResponse(userId))
 })
 
 // Test a provider + model connection by making a minimal Messages API call.

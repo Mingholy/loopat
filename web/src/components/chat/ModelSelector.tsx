@@ -87,6 +87,11 @@ export default function ModelSelector() {
     return map;
   }, [flatModels]);
 
+  const missingKeyProviders = useMemo(() => {
+    if (!providers) return [];
+    return Object.entries(providers.providers).filter(([, info]) => !info.hasKey && !!info.missingVar);
+  }, [providers]);
+
   const isClaudeModel = (model: string) => model.toLowerCase().startsWith("claude");
   const onPick = useCallback(async (item: FlatModel) => {
     setOpen(false);
@@ -232,6 +237,17 @@ export default function ModelSelector() {
               </div>
             )}
           </div>
+
+          {missingKeyProviders.length > 0 && (
+            <div className="px-4 py-2 border-t border-amber-100 bg-amber-50/70 text-[11px] text-amber-700 shrink-0 space-y-0.5">
+              {missingKeyProviders.map(([name, info]) => (
+                <div key={name}>
+                  Missing key: <span className="font-medium">{name}</span> needs{" "}
+                  <code className="font-mono">{info.missingVar}</code> in Settings / AI Providers.
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Footer with shortcuts */}
           <div className="flex items-center gap-4 px-4 py-2 border-t border-gray-100 text-[10px] text-gray-400 shrink-0">

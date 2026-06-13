@@ -1091,7 +1091,7 @@ export async function listTopics(): Promise<TopicAggregate[]> {
 }
 
 export type ModelEntry = { id: string; maxContextTokens?: number }
-export type ProviderInfo = { model?: string; models: ModelEntry[]; baseUrl: string; source: "personal" | "workspace"; enabled: boolean; hasKey: boolean }
+export type ProviderInfo = { model?: string; models: ModelEntry[]; baseUrl: string; source: "personal" | "workspace"; enabled: boolean; hasKey: boolean; missingVar?: string }
 export type ProvidersResponse = { providers: Record<string, ProviderInfo>; default: string }
 export async function getProviders(): Promise<ProvidersResponse> {
   const r = await apiFetch("/api/providers")

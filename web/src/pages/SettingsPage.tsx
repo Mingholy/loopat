@@ -354,6 +354,7 @@ type ProvidersDraft = {
     enabled: boolean
     apiKeyNewValue: string
     apiKeyStored: boolean
+    apiKeyRef?: string
   }>
 }
 
@@ -400,6 +401,7 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
           enabled: p.enabled !== false,
           apiKeyNewValue: "",
           apiKeyStored: !!refInfo?.exists,
+          apiKeyRef: p.apiKey,
         }
       }
     }
@@ -539,7 +541,9 @@ function ProvidersSection({ disk, refExists, onChanged, disabled }: {
         }))
       providersOut[name] = {
         baseUrl: p.baseUrl,
-        apiKey: `\${${providerEnvVarName(name)}}`,
+        apiKey: p.apiKeyNewValue.trim()
+          ? `\${${providerEnvVarName(name)}}`
+          : (p.apiKeyRef ?? `\${${providerEnvVarName(name)}}`),
         ...(models.length > 0 ? { models } : {}),
         ...(p.enabled ? {} : { enabled: false }),
       }
@@ -1083,4 +1087,3 @@ function ApiTokensSection() {
     </div>
   )
 }
-
